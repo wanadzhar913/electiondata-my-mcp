@@ -2,12 +2,13 @@
   - [What's exposed](#whats-exposed)
   - [Installation](#installation)
   - [Usage](#usage)
-  - [Safety model](#safety-model)
+    - [Sample Conversation](#sample-conversation)
   - [Development](#development)
-  - [Relation to the ElectionData.MY API](#relation-to-the-electiondatamy-api)
   - [Design & Implementation](#design--implementation)
     - [The DuckDB-WASM approach](#the-duckdb-wasm-approach)
+    - [Safety model](#safety-model)
     - [Querying the lake directly](#querying-the-lake-directly)
+    - [Relation to the ElectionData.MY API](#relation-to-the-electiondatamy-api)
   - [Contributing](#contributing)
   - [License](#license)
   - [Acknowledgments](#acknowledgments)
@@ -74,17 +75,10 @@ Register it with an MCP client — for Claude for Desktop, in
 }
 ```
 
-## Safety model
+### Sample Conversation
 
-Every query passes [`query_validator.py`](src/electiondata_my_mcp/query_validator.py) before it reaches DuckDB:
-
-- `SELECT` or `WITH` only, one statement, no trailing second statement.
-- DDL, DML, and session keywords (`CREATE`, `ATTACH`, `INSTALL`, `PRAGMA`, `SET`, …) are rejected.
-- File and network functions (`read_parquet`, `read_csv`, `glob`, …) are rejected, so the allowlisted views are the only reachable data.
-- A query must reference at least one known lake table.
-- Anything touching a `voter_roll_*` table must carry `LIMIT 10000` or less — the same rule the website enforces.
-
-`execute_query` returns at most 100 rows by default and 1,000 at the ceiling, flagging `truncated` rather than silently cutting.
+- [Q&A with Claude Code ❯ How has the percentage of female MPs changed over time?](https://claude.ai/code/session_01CYGw2Zvt7CPcDqbNLUKwag)
+- [Charts from Claude Code Session](https://claude.ai/code/artifact/2dbd6527-de6f-4d1e-b8ee-095116d9f902)
 
 ## Development
 
@@ -116,10 +110,6 @@ uv run ruff check
 ```
 
 Coverage is enforced at 80%. When the lake gains a dataset, update `DATASETS` in `duckdb_lake.py` alongside upstream `datasets.ts` — the validator's allowlist and the `list_datasets` tool both derive from it.
-
-## Relation to the ElectionData.MY API
-
-The lake is for bulk and analytical work. For focused lookups — a candidate's history, a party's record in one state — the [v1 REST API](https://api.electiondata.my/v1) is the better fit; it needs an `ELECTIONDATAMY_API_KEY` and is covered by the `query-electiondatamy-api` skill in `.cursor/skills/`. This server deliberately covers only the lake, which needs no credentials.
 
 ## Design & Implementation
 
@@ -188,6 +178,18 @@ Why this matters:
 
 The one thing the browser cannot do is the reason this server exists: a WASM tab has no way to hand results to an MCP client. Here, the same queries run in-process and come back as structured tool results.
 
+### Safety model
+
+Every query passes [`query_validator.py`](src/electiondata_my_mcp/query_validator.py) before it reaches DuckDB:
+
+- `SELECT` or `WITH` only, one statement, no trailing second statement.
+- DDL, DML, and session keywords (`CREATE`, `ATTACH`, `INSTALL`, `PRAGMA`, `SET`, …) are rejected.
+- File and network functions (`read_parquet`, `read_csv`, `glob`, …) are rejected, so the allowlisted views are the only reachable data.
+- A query must reference at least one known lake table.
+- Anything touching a `voter_roll_*` table must carry `LIMIT 10000` or less — the same rule the website enforces.
+
+`execute_query` returns at most 100 rows by default and 1,000 at the ceiling, flagging `truncated` rather than silently cutting.
+
 ### Querying the lake directly
 
 `duckdb_lake.py` is also a standalone CLI and library, useful for checking a query before wiring up a client:
@@ -212,6 +214,10 @@ from electiondata_my_mcp.duckdb_lake import connect
 
 df = connect().sql("SELECT * FROM headline_ballots LIMIT 10").df()
 ```
+
+### Relation to the ElectionData.MY API
+
+The lake is for bulk and analytical work. For focused lookups — a candidate's history, a party's record in one state — the [v1 REST API](https://api.electiondata.my/v1) is the better fit; it needs an `ELECTIONDATAMY_API_KEY` and is covered by the `query-electiondatamy-api` skill in `.cursor/skills/`. This server deliberately covers only the lake, which needs no credentials.
 
 ## Contributing
 

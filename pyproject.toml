@@ -62,3 +62,8 @@ source = ["electiondata_my_mcp"]
 exclude_lines = [
     "if __name__ == .__main__.:",
 ]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/electiondata_my_mcp"
+Documentation = "https://github.com/yourusername/electiondata_my_mcp#readme"
+Issues = "https://github.com/yourusername/electiondata_my_mcp/issues"
