@@ -1,6 +1,6 @@
 [project]
 name = "electiondata-my-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "An MCP server that lets an LLM answer questions about Malaysian elections by writing DuckDB SQL against the public ElectionData.MY data lake"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -66,6 +66,6 @@ exclude_lines = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/electiondata_my_mcp"
-Documentation = "https://github.com/yourusername/electiondata_my_mcp#readme"
-Issues = "https://github.com/yourusername/electiondata_my_mcp/issues"
+Homepage = "https://github.com/wanadzhar913/electiondata-my-mcp"
+Documentation = "https://github.com/wanadzhar913/electiondata-my-mcp#readme"
+Issues = "https://github.com/wanadzhar913/electiondata-my-mcp/issues"
