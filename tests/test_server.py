@@ -23,17 +23,6 @@ from electiondata_my_mcp.server import (
 )
 
 
-@pytest.fixture
-def anyio_backend():  
-    return "asyncio"
-
-
-@pytest.fixture
-async def client():  
-    async with Client(mcp, raise_exceptions=True) as c:
-        yield c
-
-
 @pytest.fixture(autouse=True)
 def reset_connection() -> None:
     server._connection = None
@@ -184,30 +173,32 @@ def test_get_connection_is_lazy(mock_connect: MagicMock, mock_duckdb_connection:
     mock_connect.assert_called_once()
 
 
-@pytest.mark.anyio
-async def test_call_validate_sql_tool(client: Client):
-    result = await client.call_tool(
-        "validate_sql",
-        {"sql": "SELECT seat FROM headline_stats LIMIT 1"},
-    )
-    # Drop the server identity stamp in `_meta`; it is not what this test is about.
-    result.meta = None
-    assert result == snapshot(
-        CallToolResult(
-            content=[
-                TextContent(
-                    type="text",
-                    text=(
-                        '{\n  "valid": true,\n  "tables": [\n'
-                        '    "headline_stats"\n  ],\n  "errors": [],\n  "warnings": []\n}'
-                    ),
-                )
-            ],
-            structured_content={
-                "valid": True,
-                "tables": ["headline_stats"],
-                "errors": [],
-                "warnings": [],
-            },
+async def test_call_validate_sql_tool() -> None:
+    # Keep Client enter/exit in this task. A fixture yield is torn down on a
+    # different task under pytest-asyncio + anyio, which 3.13 rejects.
+    async with Client(mcp, raise_exceptions=True) as client:
+        result = await client.call_tool(
+            "validate_sql",
+            {"sql": "SELECT seat FROM headline_stats LIMIT 1"},
         )
-    )
+        # Drop the server identity stamp in `_meta`; it is not what this test is about.
+        result.meta = None
+        assert result == snapshot(
+            CallToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text=(
+                            '{\n  "valid": true,\n  "tables": [\n'
+                            '    "headline_stats"\n  ],\n  "errors": [],\n  "warnings": []\n}'
+                        ),
+                    )
+                ],
+                structured_content={
+                    "valid": True,
+                    "tables": ["headline_stats"],
+                    "errors": [],
+                    "warnings": [],
+                },
+            )
+        )
