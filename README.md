@@ -2,8 +2,12 @@
   - [What's exposed](#whats-exposed)
   - [Installation](#installation)
   - [Usage](#usage)
-    - [Sample Conversation](#sample-conversation)
+    - [Claude Desktop](#claude-desktop)
+    - [Claude Code](#claude-code)
+    - [Cursor](#cursor)
+    - [Sample Conversations](#sample-conversations)
   - [Development](#development)
+    - [From a local checkout](#from-a-local-checkout)
   - [Design & Implementation](#design--implementation)
     - [The DuckDB-WASM approach](#the-duckdb-wasm-approach)
     - [Safety model](#safety-model)
@@ -38,44 +42,92 @@ fetched at runtime and cached for 24 hours under `$XDG_CACHE_HOME/electiondata-m
 
 ## Installation
 
+Requires [uv](https://docs.astral.sh/uv/) (which provides `uvx`) and Python 3.11+.
+
+The server is on [PyPI](https://pypi.org/project/electiondata-my-mcp/). You do not need to clone this repository to use it.
+
 ```bash
-git clone https://github.com/wanadzhar913/electiondata-my-mcp.git
-cd electiondata-my-mcp
-uv sync
+# recommended: no install step; uvx fetches the pinned package
+uvx electiondata-my-mcp==0.1.0
+
+# or install from PyPI and run the console script
+pip install electiondata-my-mcp==0.1.0
+electiondata-my-mcp
 ```
 
-Requires Python 3.11+.
+Either command starts the server on stdio and waits for an MCP client — register it below rather than invoking it by hand.
 
 ## Usage
 
-Run it over stdio:
+Point your MCP client at `uvx electiondata-my-mcp==0.1.0`. Pin the version so a new release is not picked up automatically; drop the pin to track latest. `uvx` must be on the client's `PATH` — if the client cannot find it, use the absolute path from `which uvx`.
 
-```bash
-uv run mcp run src/electiondata_my_mcp/server.py
-```
+If you installed from PyPI instead of using `uvx`, set `"command"` to `electiondata-my-mcp` and omit `args`.
 
-Register it with an MCP client — for Claude for Desktop, in
-`~/Library/Application Support/Claude/claude_desktop_config.json`:
+### Claude Desktop
+
+Add the server to `claude_desktop_config.json`:
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
-    "mcpServers": {
-        "electiondata-my": {
-            "command": "uv",
-            "args": [
-                "run",
-                "--directory",
-                "/absolute/path/to/electiondata-my-mcp",
-                "mcp",
-                "run",
-                "src/electiondata_my_mcp/server.py"
-            ]
-        }
+  "mcpServers": {
+    "electiondata-my": {
+      "command": "uvx",
+      "args": [
+        "electiondata-my-mcp==0.1.0"
+      ]
     }
+  }
 }
 ```
 
-### Sample Conversation
+Restart Claude Desktop after saving.
+
+### Claude Code
+
+From the terminal:
+
+```bash
+claude mcp add --transport stdio --scope user electiondata-my -- uvx electiondata-my-mcp==0.1.0
+```
+
+Or write the same JSON into a project `.mcp.json`, or into `~/.claude.json` for a user-wide server:
+
+```json
+{
+  "mcpServers": {
+    "electiondata-my": {
+      "command": "uvx",
+      "args": [
+        "electiondata-my-mcp==0.1.0"
+      ]
+    }
+  }
+}
+```
+
+Confirm with `claude mcp list`, or `/mcp` inside a session.
+
+### Cursor
+
+Add the server in **Settings → Tools & MCP**, or write it to `~/.cursor/mcp.json` (all projects) or `.cursor/mcp.json` (this workspace):
+
+```json
+{
+  "mcpServers": {
+    "electiondata-my": {
+      "command": "uvx",
+      "args": [
+        "electiondata-my-mcp==0.1.0"
+      ]
+    }
+  }
+}
+```
+
+### Sample Conversations
 
 - [Q&A with Claude Code ❯ How has the percentage of female MPs changed over time?](https://claude.ai/code/session_01CYGw2Zvt7CPcDqbNLUKwag)
 - [Charts from Claude Code Session](https://claude.ai/code/artifact/2dbd6527-de6f-4d1e-b8ee-095116d9f902)
@@ -110,6 +162,34 @@ uv run ruff check
 ```
 
 Coverage is enforced at 80%. When the lake gains a dataset, update `DATASETS` in `duckdb_lake.py` alongside upstream `datasets.ts` — the validator's allowlist and the `list_datasets` tool both derive from it.
+
+### From a local checkout
+
+After cloning and `uv sync`, launch the server over stdio from the repo:
+
+```bash
+uv run mcp run src/electiondata_my_mcp/server.py
+```
+
+Point a client at the checkout instead of PyPI — the same block works in Claude Desktop, Claude Code, and Cursor; only the config file path changes:
+
+```json
+{
+  "mcpServers": {
+    "electiondata-my": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/absolute/path/to/electiondata-my-mcp",
+        "mcp",
+        "run",
+        "src/electiondata_my_mcp/server.py"
+      ]
+    }
+  }
+}
+```
 
 ## Design & Implementation
 
