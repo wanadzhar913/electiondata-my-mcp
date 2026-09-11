@@ -19,6 +19,8 @@
 
 # ElectionData.MY MCP Server (unofficial)
 
+[![PyPI](https://img.shields.io/pypi/v/electiondata-my-mcp)](https://pypi.org/project/electiondata-my-mcp/)
+
 An MCP server that lets an LLM answer questions about Malaysian elections by writing DuckDB SQL against the public [ElectionData.MY](https://electiondata.my/) data lake — every Parliament and DUN contest ever held, down to saluran-level ballots and voter rolls.
 
 No API key, no database to provision, no data to download. The lake is public Parquet over HTTP and DuckDB reads it in place. This is with special thanks to the [ElectionData.MY](https://electiondata.my/) team for making the data available!
