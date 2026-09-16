@@ -15,6 +15,7 @@ An MCP server that lets an LLM answer questions about Malaysian elections by wri
   - [Claude Desktop](#claude-desktop)
   - [Claude Code](#claude-code)
   - [Cursor](#cursor)
+  - [Streamable HTTP](#streamable-http)
   - [Sample Conversations](#sample-conversations)
 - [Development](#development)
   - [From a local checkout](#from-a-local-checkout)
@@ -128,6 +129,10 @@ Add the server in **Settings → Tools & MCP**, or write it to `~/.cursor/mcp.js
   }
 }
 ```
+
+### Streamable HTTP
+
+To serve Streamable HTTP (CORS, `/health`, workers) instead of stdio, see [PRODUCTION.md](PRODUCTION.md).
 
 ### Sample Conversations
 

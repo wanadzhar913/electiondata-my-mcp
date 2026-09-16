@@ -3,29 +3,37 @@
 # Annotations stay eager: `mcp dev` execs this file without registering it in
 # sys.modules, so pydantic cannot resolve stringified hints on decorated functions.
 
+import argparse
+import logging
 import time
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from typing import Any
 
 import duckdb
+from mcp.server import ServerRequestContext
+from mcp.server.context import CallNext, HandlerResult
 from mcp.server.mcpserver import MCPServer, UserMessage
 from mcp.server.mcpserver.exceptions import ToolError
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
 
-from electiondata_my_mcp.duckdb_lake import DATASETS, LAZY, connect
+from electiondata_my_mcp.duckdb_lake import DATASETS, LAZY
+from electiondata_my_mcp.duckdb_pool import DuckDBPool, PoolTimeoutError, pool_from_env
 from electiondata_my_mcp.prompt_loader import load_prompt
 from electiondata_my_mcp.query_validator import validate_query
+from electiondata_my_mcp.settings import apply_cli_overrides
 
 DEFAULT_MAX_ROWS = 100
 ABSOLUTE_MAX_ROWS = 1_000
+DEFAULT_HTTP_HOST = "127.0.0.1"
+DEFAULT_HTTP_PORT = 8000
+DEFAULT_HTTP_WORKERS = 1
+ASGI_APP_IMPORT_STRING = "electiondata_my_mcp.http_app:app"
 
-mcp = MCPServer(
-    "electiondata-my-mcp",
-    instructions=(
-        "Query Malaysian election data from the ElectionData.MY public data lake "
-        "using DuckDB SQL. Read electiondata://query-guide before writing SQL."
-    ),
-)
+logger = logging.getLogger(__name__)
 
-_connection: duckdb.DuckDBPyConnection | None = None
+_pool: DuckDBPool = pool_from_env()
 
 DATASET_DESCRIPTIONS: dict[str, str] = {
     "headline_ballots": "Candidate-level results for every Parliament and DUN contest.",
@@ -36,11 +44,35 @@ DATASET_DESCRIPTIONS: dict[str, str] = {
 }
 
 
-def _get_connection() -> duckdb.DuckDBPyConnection:
-    global _connection
-    if _connection is None:
-        _connection = connect()
-    return _connection
+async def log_timing(
+    ctx: ServerRequestContext[Any, Any],
+    call_next: CallNext,
+) -> HandlerResult:
+    start = time.perf_counter()
+    try:
+        return await call_next(ctx)
+    finally:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        logger.info("%s took %.1f ms", ctx.method, elapsed_ms)
+
+
+mcp = MCPServer(
+    "electiondata-my-mcp",
+    instructions=(
+        "Query Malaysian election data from the ElectionData.MY public data lake "
+        "using DuckDB SQL. Read electiondata://query-guide before writing SQL."
+    ),
+    middleware=[log_timing],
+)
+
+
+@contextmanager
+def _connection() -> Iterator[duckdb.DuckDBPyConnection]:
+    try:
+        with _pool.acquire() as con:
+            yield con
+    except PoolTimeoutError as error:
+        raise ToolError("Too many concurrent lake queries; retry shortly.") from error
 
 
 def _dataset_description(name: str) -> str:
@@ -119,11 +151,11 @@ def describe_dataset(dataset: str) -> dict[str, Any]:
     if dataset not in DATASETS:
         raise ToolError(f"Unknown dataset: {dataset}")
 
-    con = _get_connection()
-    try:
-        rows = con.sql(f"DESCRIBE SELECT * FROM {dataset}").fetchall()
-    except duckdb.Error as error:
-        raise ToolError(f"Unable to describe dataset {dataset}: {error}") from error
+    with _connection() as con:
+        try:
+            rows = con.sql(f"DESCRIBE SELECT * FROM {dataset}").fetchall()
+        except duckdb.Error as error:
+            raise ToolError(f"Unable to describe dataset {dataset}: {error}") from error
 
     return {
         "dataset": dataset,
@@ -165,24 +197,24 @@ def execute_query(sql: str, max_rows: int = DEFAULT_MAX_ROWS) -> dict[str, Any]:
         raise ToolError(f"max_rows must be between 1 and {ABSOLUTE_MAX_ROWS}")
 
     _require_valid_query(sql)
-    con = _get_connection()
     started = time.perf_counter()
 
-    try:
-        result = con.sql(sql)
-        if result is None:
-            elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
-            return {
-                "columns": [],
-                "rows": [],
-                "row_count": 0,
-                "truncated": False,
-                "elapsed_ms": elapsed_ms,
-            }
+    with _connection() as con:
+        try:
+            result = con.sql(sql)
+            if result is None:
+                elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+                return {
+                    "columns": [],
+                    "rows": [],
+                    "row_count": 0,
+                    "truncated": False,
+                    "elapsed_ms": elapsed_ms,
+                }
 
-        columns, rows, truncated = _serialize_rows(result, max_rows)
-    except duckdb.Error as error:
-        raise ToolError(f"Query failed: {error}") from error
+            columns, rows, truncated = _serialize_rows(result, max_rows)
+        except duckdb.Error as error:
+            raise ToolError(f"Query failed: {error}") from error
 
     elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
     return {
@@ -194,8 +226,111 @@ def execute_query(sql: str, max_rows: int = DEFAULT_MAX_ROWS) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    mcp.run()
+@mcp.custom_route("/health", methods=["GET"])
+async def health(_request: Request) -> Response:
+    return JSONResponse({"status": "ok"})
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="ElectionData.MY MCP server (stdio by default; Streamable HTTP optional).",
+    )
+    parser.add_argument(
+        "--transport",
+        choices=("stdio", "streamable-http"),
+        default="stdio",
+        help="MCP transport (default: stdio)",
+    )
+    parser.add_argument(
+        "--host",
+        default=None,
+        help=f"HTTP bind host (default: {DEFAULT_HTTP_HOST}; streamable-http only)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help=f"HTTP bind port (default: {DEFAULT_HTTP_PORT}; streamable-http only)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help=f"uvicorn worker processes (default: {DEFAULT_HTTP_WORKERS}; streamable-http only)",
+    )
+    parser.add_argument(
+        "--allowed-host",
+        action="append",
+        dest="allowed_hosts",
+        default=None,
+        metavar="HOST",
+        help="DNS-rebinding Host allowlist entry; repeatable (streamable-http only)",
+    )
+    parser.add_argument(
+        "--allowed-origin",
+        action="append",
+        dest="allowed_origins",
+        default=None,
+        metavar="ORIGIN",
+        help="CORS and Origin allowlist entry; repeatable (streamable-http only)",
+    )
+    parser.add_argument(
+        "--disable-dns-rebinding-protection",
+        action="store_true",
+        help="Turn off Host/Origin checks (streamable-http only; for a trusted reverse proxy)",
+    )
+    args = parser.parse_args(argv)
+
+    http_only_set = any(
+        [
+            args.host is not None,
+            args.port is not None,
+            args.workers is not None,
+            args.allowed_hosts,
+            args.allowed_origins,
+            args.disable_dns_rebinding_protection,
+        ]
+    )
+    if args.transport == "stdio" and http_only_set:
+        parser.error(
+            "--host, --port, --workers, --allowed-host, --allowed-origin, and "
+            "--disable-dns-rebinding-protection require --transport streamable-http"
+        )
+
+    if args.transport == "streamable-http":
+        if args.host is None:
+            args.host = DEFAULT_HTTP_HOST
+        if args.port is None:
+            args.port = DEFAULT_HTTP_PORT
+        if args.workers is None:
+            args.workers = DEFAULT_HTTP_WORKERS
+        if args.port < 1 or args.port > 65535:
+            parser.error("--port must be between 1 and 65535")
+        if args.workers < 1:
+            parser.error("--workers must be at least 1")
+
+    return args
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(argv)
+    if args.transport == "stdio":
+        mcp.run()
+        return
+
+    apply_cli_overrides(
+        allowed_hosts=args.allowed_hosts,
+        allowed_origins=args.allowed_origins,
+        enable_dns_rebinding_protection=(False if args.disable_dns_rebinding_protection else None),
+    )
+    import uvicorn
+
+    uvicorn.run(
+        ASGI_APP_IMPORT_STRING,
+        host=args.host,
+        port=args.port,
+        workers=args.workers,
+    )
 
 
 if __name__ == "__main__":

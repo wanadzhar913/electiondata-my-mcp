@@ -10,8 +10,8 @@ SERVER_PATH = Path(__file__).resolve().parents[1] / "src" / "electiondata_my_mcp
 
 def test_server_main_runs_mcp() -> None:
     with patch.object(server.mcp, "run") as mock_run:
-        server.main()
-    mock_run.assert_called_once()
+        server.main([])
+    mock_run.assert_called_once_with()
 
 
 def test_package_main_entrypoint() -> None:

@@ -65,11 +65,15 @@ uv run src/electiondata_my_mcp/duckdb_lake.py \
 
 | Path | Role |
 | --- | --- |
-| `src/electiondata_my_mcp/server.py` | MCP tools, resource, and prompt. |
+| `src/electiondata_my_mcp/server.py` | MCP tools, resource, prompt, stdio CLI, `/health`. |
+| `src/electiondata_my_mcp/http_app.py` | Streamable HTTP Starlette app (CORS, transport security). |
+| `src/electiondata_my_mcp/settings.py` | HTTP Host/Origin allowlists from the environment. |
 | `src/electiondata_my_mcp/duckdb_lake.py` | Table → Parquet URL map, `connect()`, CLI. |
+| `src/electiondata_my_mcp/duckdb_pool.py` | Per-process DuckDB cursor pool used by `execute_query` / `describe_dataset`. |
 | `src/electiondata_my_mcp/query_validator.py` | Read-only SQL allowlist used by `validate_sql` / `execute_query`. |
 | `src/electiondata_my_mcp/prompt_loader.py` | Fetches and caches the Query Builder guide. |
 | `src/electiondata_my_mcp/prompts/query-builder-prompt.md` | Bundled fallback if GitHub is unreachable. |
+| `PRODUCTION.md` | Streamable HTTP deploy (uvicorn workers, CORS, allowlists). |
 | `tests/` | Pytest suite. DuckDB is mocked in server tests so CI does not hit the lake. |
 
 ## Common changes

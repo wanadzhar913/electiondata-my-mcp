@@ -1,6 +1,6 @@
 [project]
 name = "electiondata-my-mcp"
-version = "0.1.1"
+version = "0.2.0"
 description = "An MCP server that lets an LLM answer questions about Malaysian elections by writing DuckDB SQL against the public ElectionData.MY data lake"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -8,10 +8,15 @@ dependencies = [
     "duckdb>=1.5.5",
     "httpx>=0.28.1",
     "mcp[cli]>=2.1.1",
+    "starlette>=0.46",
+    "uvicorn>=0.31.1",
 ]
 license = { text = "CC0-1.0" }
 authors = [
     { name = "Faiq Adzlan", email = "adzhar.faiq@gmail.com" }
+]
+classifiers = [
+    "License :: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication",
 ]
 
 [project.scripts]
