@@ -1,31 +1,31 @@
-- [ElectionData.MY MCP Server](#electiondatamy-mcp-server-unofficial)
-  - [What's exposed](#whats-exposed)
-  - [Installation](#installation)
-  - [Usage](#usage)
-    - [Claude Desktop](#claude-desktop)
-    - [Claude Code](#claude-code)
-    - [Cursor](#cursor)
-    - [Sample Conversations](#sample-conversations)
-  - [Development](#development)
-    - [From a local checkout](#from-a-local-checkout)
-  - [Design & Implementation](#design--implementation)
-    - [The DuckDB-WASM approach](#the-duckdb-wasm-approach)
-    - [Safety model](#safety-model)
-    - [Querying the lake directly](#querying-the-lake-directly)
-    - [Relation to the ElectionData.MY API](#relation-to-the-electiondatamy-api)
-  - [Contributing](#contributing)
-  - [License](#license)
-  - [Acknowledgments](#acknowledgments)
-
 # ElectionData.MY MCP Server (unofficial)
 
 [![PyPI](https://img.shields.io/pypi/v/electiondata-my-mcp)](https://pypi.org/project/electiondata-my-mcp/)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/electiondata-my-mcp?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/electiondata-my-mcp)
 
-An MCP server that lets an LLM answer questions about Malaysian elections by writing DuckDB SQL against the public [ElectionData.MY](https://electiondata.my/) data lake — every Parliament and DUN contest ever held, down to saluran-level ballots and voter rolls.
+An MCP server that lets an LLM answer questions about Malaysian elections by writing DuckDB SQL against the public ElectionData.MY [data lake](https://electiondata.my/data-catalogue/) — every Parliament and DUN contest ever held, down to saluran-level ballots and voter rolls.
 
-No API key, no database to provision, no data to download. The lake is public Parquet over HTTP and DuckDB reads it in place. This is with special thanks to the [ElectionData.MY](https://electiondata.my/) team for making the data available!
+**No API key, no database to provision, no data to download.** The lake is public Parquet over HTTP and DuckDB reads it in place. This is with special thanks to the [ElectionData.MY](https://electiondata.my/) team for making the data available!
 
-**NOTE: This is an unofficial project and is not affiliated with the ElectionData.MY team.** Please support their work by visiting their website!
+**NOTE:** This is an *unofficial project* and is not affiliated with the ElectionData.MY team. Please support their work by visiting their website!
+
+- [What's exposed](#whats-exposed)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Claude Desktop](#claude-desktop)
+  - [Claude Code](#claude-code)
+  - [Cursor](#cursor)
+  - [Sample Conversations](#sample-conversations)
+- [Development](#development)
+  - [From a local checkout](#from-a-local-checkout)
+- [Design & Implementation](#design--implementation)
+  - [The DuckDB-WASM approach](#the-duckdb-wasm-approach)
+  - [Safety model](#safety-model)
+  - [Querying the lake directly](#querying-the-lake-directly)
+  - [Relation to the ElectionData.MY API](#relation-to-the-electiondatamy-api)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
 
 ## What's exposed
 
