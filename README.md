@@ -309,6 +309,8 @@ The lake is for bulk and analytical work. For focused lookups — a candidate's 
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for more details on local setup, the kinds of changes that help, and how pull requests are reviewed.
+
 ## License
 
 Much like the [meco-front](https://github.com/electiondata-my/meco-front) repository, this project is released into the public domain under [CC0 1.0 Universal (CC0 1.0) Public Domain Dedication](https://creativecommons.org/publicdomain/zero/1.0/). You are free to use, modify, and distribute the code without any restrictions.
