@@ -16,6 +16,8 @@ from electiondata_my_mcp.duckdb_pool import (
     pool_from_env,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def _memory_db() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect(":memory:")

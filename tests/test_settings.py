@@ -15,6 +15,8 @@ from electiondata_my_mcp.settings import (
     load_http_settings,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def test_load_http_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(ENV_ALLOWED_HOSTS, raising=False)

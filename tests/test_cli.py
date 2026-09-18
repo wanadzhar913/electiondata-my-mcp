@@ -8,6 +8,7 @@ import pytest
 from electiondata_my_mcp.server import ASGI_APP_IMPORT_STRING, main, parse_args
 from electiondata_my_mcp.settings import ENV_ALLOWED_HOSTS, ENV_ALLOWED_ORIGINS, ENV_DNS_REBINDING
 
+pytestmark = pytest.mark.unit
 
 def test_parse_args_defaults_to_stdio() -> None:
     args = parse_args([])

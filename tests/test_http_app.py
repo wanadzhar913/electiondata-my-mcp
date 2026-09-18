@@ -7,6 +7,7 @@ from electiondata_my_mcp.http_app import app, build_asgi_app
 from electiondata_my_mcp.server import mcp
 from electiondata_my_mcp.settings import ENV_ALLOWED_HOSTS, ENV_ALLOWED_ORIGINS, ENV_DNS_REBINDING
 
+pytestmark = pytest.mark.unit
 
 async def _request(asgi_app, method: str, path: str, **kwargs) -> httpx.Response:
     transport = httpx.ASGITransport(app=asgi_app)
