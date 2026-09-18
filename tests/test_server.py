@@ -24,6 +24,8 @@ from electiondata_my_mcp.server import (
     validate_sql,
 )
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture(autouse=True)
 def reset_pool() -> None:

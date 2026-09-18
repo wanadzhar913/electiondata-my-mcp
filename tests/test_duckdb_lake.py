@@ -8,6 +8,8 @@ import pytest
 
 from electiondata_my_mcp.duckdb_lake import DATASETS, LAZY, connect, main
 
+pytestmark = pytest.mark.unit
+
 
 @patch("duckdb.connect")
 def test_connect_registers_httpfs_and_views(mock_connect: MagicMock) -> None:
