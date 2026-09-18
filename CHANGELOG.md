@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Mark the mocked pytest suite as `unit` (default, CI) and add opt-in `integration` tests that spawn the real stdio MCP server against `lake.electiondata.my`.
+
 ## 0.1.1 — 2026-09-11
 
 Documentation-only. No runtime changes.

@@ -3,7 +3,11 @@ import runpy
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from electiondata_my_mcp import server
+
+pytestmark = pytest.mark.unit
 
 SERVER_PATH = Path(__file__).resolve().parents[1] / "src" / "electiondata_my_mcp" / "server.py"
 

@@ -1,4 +1,8 @@
+import pytest
+
 from electiondata_my_mcp.query_validator import referenced_tables, validate_query
+
+pytestmark = pytest.mark.unit
 
 
 def test_accepts_simple_select() -> None:

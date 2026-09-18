@@ -155,7 +155,11 @@ uv run mcp dev src/electiondata_my_mcp/server.py
 
 4. Run the tests
 ```bash
+# unit (mocked DuckDB / httpx; default, used in CI)
 uv run pytest -q
+
+# integration: spawn the real stdio server and query lake.electiondata.my
+uv run pytest -m integration --no-cov
 ```
 
 5. Run the linter
@@ -163,7 +167,9 @@ uv run pytest -q
 uv run ruff check
 ```
 
-Coverage is enforced at 80%. When the lake gains a dataset, update `DATASETS` in `duckdb_lake.py` alongside upstream `datasets.ts` — the validator's allowlist and the `list_datasets` tool both derive from it.
+Coverage is enforced at 80% on the unit suite. Integration tests are opt-in: they spawn `python -m electiondata_my_mcp` and hit the public Parquet lake, so they stay out of default pytest and CI.
+
+When the lake gains a dataset, update `DATASETS` in `duckdb_lake.py` (we aim to maintain compatibility with the upstream `datasets.ts`) — the validator's allowlist and the `list_datasets` tool both derive from it.
 
 ### From a local checkout
 
