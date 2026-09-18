@@ -51,10 +51,10 @@ The server is on [PyPI](https://pypi.org/project/electiondata-my-mcp/). You do n
 
 ```bash
 # recommended: no install step; uvx fetches the pinned package
-uvx electiondata-my-mcp==0.1.1
+uvx electiondata-my-mcp==0.2.0
 
 # or install from PyPI and run the console script
-pip install electiondata-my-mcp==0.1.1
+pip install electiondata-my-mcp==0.2.0
 electiondata-my-mcp
 ```
 
@@ -62,7 +62,7 @@ Either command starts the server on stdio and waits for an MCP client — regist
 
 ## Usage
 
-Point your MCP client at `uvx electiondata-my-mcp==0.1.1`. Pin the version so a new release is not picked up automatically; drop the pin to track latest. `uvx` must be on the client's `PATH` — if the client cannot find it, use the absolute path from `which uvx`.
+Point your MCP client at `uvx electiondata-my-mcp==0.2.0`. Pin the version so a new release is not picked up automatically; drop the pin to track latest. `uvx` must be on the client's `PATH` — if the client cannot find it, use the absolute path from `which uvx`.
 
 If you installed from PyPI instead of using `uvx`, set `"command"` to `electiondata-my-mcp` and omit `args`.
 
@@ -79,7 +79,7 @@ Add the server to `claude_desktop_config.json`:
     "electiondata-my": {
       "command": "uvx",
       "args": [
-        "electiondata-my-mcp==0.1.1"
+        "electiondata-my-mcp==0.2.0"
       ]
     }
   }
@@ -93,7 +93,7 @@ Restart Claude Desktop after saving.
 From the terminal:
 
 ```bash
-claude mcp add --transport stdio --scope user electiondata-my -- uvx electiondata-my-mcp==0.1.1
+claude mcp add --transport stdio --scope user electiondata-my -- uvx electiondata-my-mcp==0.2.0
 ```
 
 Or write the same JSON into a project `.mcp.json`, or into `~/.claude.json` for a user-wide server:
@@ -104,7 +104,7 @@ Or write the same JSON into a project `.mcp.json`, or into `~/.claude.json` for 
     "electiondata-my": {
       "command": "uvx",
       "args": [
-        "electiondata-my-mcp==0.1.1"
+        "electiondata-my-mcp==0.2.0"
       ]
     }
   }
@@ -123,7 +123,7 @@ Add the server in **Settings → Tools & MCP**, or write it to `~/.cursor/mcp.js
     "electiondata-my": {
       "command": "uvx",
       "args": [
-        "electiondata-my-mcp==0.1.1"
+        "electiondata-my-mcp==0.2.0"
       ]
     }
   }

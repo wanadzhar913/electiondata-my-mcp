@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-09-19
 
 - Optional Streamable HTTP transport via `mcp.streamable_http_app()`, CORS, DNS-rebinding allowlists, `GET /health`, and uvicorn `--workers`.
 - Stdio remains the default; HTTP flags are rejected unless `--transport streamable-http`.
