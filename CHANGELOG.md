@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Mark the mocked pytest suite as `unit` (default, CI) and add opt-in `integration` tests that spawn the real stdio MCP server against `lake.electiondata.my`.
+- Pull-request CI stays unit-only; maintainers run the live suite from Actions (`workflow_dispatch`) or the `run-integration` PR label.
 
 ## 0.1.1 — 2026-09-11
 

@@ -8,14 +8,28 @@ on:
       - "docs/**"
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled, ready_for_review]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   release:
     types: [published]
+  # Maintainers: Actions → Test and Publish → Run workflow (optionally tick
+  # "run_integration"), or add the run-integration label on a PR.
+  workflow_dispatch:
+    inputs:
+      run_integration:
+        description: After unit tests pass, run live stdio/lake integration tests
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
 jobs:
   test:
+    name: Unit tests (${{ matrix.os }}, ${{ matrix.python-version }})
+    if: github.event_name != 'pull_request' || github.event.action != 'labeled' || contains(github.event.pull_request.labels.*.name, 'run-integration')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -35,8 +49,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --group dev
 
-      - name: Run Pytest
-        run: uv run pytest
+      - name: Run unit tests
+        run: uv run pytest -m unit
 
       - name: Upload coverage reports
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
@@ -44,6 +58,33 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+  # Live lake + stdio client. Skipped on ordinary PRs. Runs only after the unit
+  # matrix is green, and only when a maintainer dispatches this workflow or
+  # labels a PR run-integration.
+  integration:
+    name: Integration tests
+    needs: test
+    if: |
+      (github.event_name == 'workflow_dispatch' && (inputs.run_integration == true || inputs.run_integration == 'true')) ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-integration'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync --frozen --group dev
+
+      - name: Run integration tests
+        run: uv run pytest -m integration --no-cov
 
   # Requires a PyPI Trusted Publisher for this repo, this workflow file, and
   # the "release" environment: https://docs.pypi.org/trusted-publishers/
