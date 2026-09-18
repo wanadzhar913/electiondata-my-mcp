@@ -5,6 +5,14 @@ from unittest.mock import MagicMock
 import pytest
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    for item in items:
+        if "unit" not in item.keywords and "integration" not in item.keywords:
+            raise pytest.UsageError(
+                f"{item.nodeid} is missing @pytest.mark.unit or @pytest.mark.integration"
+            )
+
+
 @pytest.fixture
 def mock_duckdb_connection() -> MagicMock:
     connection = MagicMock()

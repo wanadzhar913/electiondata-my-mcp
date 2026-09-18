@@ -43,7 +43,20 @@ uv run ruff check
 uv run pytest -q
 ```
 
-Coverage must stay at **80%** (`--cov-fail-under=80` in `pyproject.toml`). CI runs pytest on Ubuntu, macOS, and Windows against Python 3.11, 3.12, and 3.13.
+That pytest run is the **unit** suite (mocked DuckDB / httpx, no network). Coverage must stay at **80%** (`--cov-fail-under=80` in `pyproject.toml`). CI runs it on Ubuntu, macOS, and Windows against Python 3.11, 3.12, and 3.13.
+
+To exercise the live stdio server against `lake.electiondata.my`:
+
+```bash
+uv run pytest -m integration --no-cov
+```
+
+`--no-cov` is required: a handful of live tests will not meet the 80% gate. These tests spawn `python -m electiondata_my_mcp` and query `headline_stats` over HTTP; they are not the ElectionData.MY REST API.
+
+CI does not run them on an ordinary PR. After the unit matrix is green, a maintainer can:
+
+1. Open **Actions → Test and Publish → Run workflow**, choose the PR branch, and leave **run_integration** checked; or
+2. Add the `run-integration` label to the PR (unit tests re-run, then the live suite).
 
 Exercise the server with the [MCP Inspector](https://modelcontextprotocol.io/docs/2026-07-28/tools/inspector):
 
@@ -70,7 +83,7 @@ uv run src/electiondata_my_mcp/duckdb_lake.py \
 | `src/electiondata_my_mcp/query_validator.py` | Read-only SQL allowlist used by `validate_sql` / `execute_query`. |
 | `src/electiondata_my_mcp/prompt_loader.py` | Fetches and caches the Query Builder guide. |
 | `src/electiondata_my_mcp/prompts/query-builder-prompt.md` | Bundled fallback if GitHub is unreachable. |
-| `tests/` | Pytest suite. DuckDB is mocked in server tests so CI does not hit the lake. |
+| `tests/` | Pytest suite. `@pytest.mark.unit` (mocked; default CI). `@pytest.mark.integration` is opt-in (live stdio + lake). |
 
 ## Common changes
 
@@ -102,7 +115,7 @@ Keep the existing contract unless you are explicitly changing it, and cover the 
 
 1. Fork the repo and create a branch from `main` (`git checkout -b fix/short-description`).
 2. Make a focused change. Match the surrounding style; `ruff` is the linter (`line-length = 100`, Python 3.11).
-3. Add or update tests. Prefer the existing mocks in `tests/conftest.py` over live lake calls.
+3. Add or update tests. Prefer the existing mocks in `tests/conftest.py` over live lake calls. Every test must be marked `unit` or `integration`. Live stdio/lake coverage lives in `tests/test_live_lake.py` and `tests/test_live_mcp_client.py` and stays behind `pytest -m integration`.
 4. For user-facing changes, add a note under the next version in `CHANGELOG.md`. Leave the version in `pyproject.toml` and `__init__.py` alone unless a maintainer asks you to bump it.
 5. Open a pull request against `main`. Describe the problem, the approach, and how you tested it.
 

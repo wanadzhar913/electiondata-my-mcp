@@ -16,6 +16,8 @@ from electiondata_my_mcp.prompt_loader import (
     main,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def test_default_cache_path_uses_xdg_cache_home(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     cache_root = tmp_path / "cache"
