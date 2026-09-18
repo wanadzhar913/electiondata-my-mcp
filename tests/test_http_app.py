@@ -51,6 +51,7 @@ async def test_http_transport_is_stateless() -> None:
             )
 
     assert response.status_code == 200
+    # as per https://py.sdk.modelcontextprotocol.io/whats-new/?h=2026-07-28+session#no-handshake-no-session
     assert "mcp-session-id" not in response.headers
 
 

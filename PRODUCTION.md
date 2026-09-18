@@ -27,6 +27,37 @@ uvicorn electiondata_my_mcp.http_app:app --host 0.0.0.0 --port 8000 --workers 4
 
 `--host`, `--port`, `--workers`, `--allowed-host`, `--allowed-origin`, and `--disable-dns-rebinding-protection` are HTTP-only. Passing them with the default stdio transport is an error, so a desktop config cannot accidentally open a port.
 
+POSTs to `/mcp` are Streamable HTTP: send `Accept: application/json, text/event-stream`. Replies are SSE (`event: message` then `data: {jsonrpc…}`). There is no `Mcp-Session-Id` (stateless). Hit `127.0.0.1` or `localhost`; another `Host` is `421` until you allowlist it.
+
+```bash
+curl -sS http://127.0.0.1:8000/health
+# {"status":"ok"}
+
+curl -sS http://127.0.0.1:8000/mcp \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
+```
+
+```text
+event: message
+data: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{…},"serverInfo":{"name":"electiondata-my-mcp",…}}}
+```
+
+```bash
+curl -sS http://127.0.0.1:8000/mcp \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"execute_query","arguments":{"sql":"SELECT seat, majority FROM headline_stats ORDER BY majority DESC LIMIT 3","max_rows":3}}}'
+```
+
+```text
+event: message
+data: {"jsonrpc":"2.0","id":2,"result":{"isError":false,"structuredContent":{"columns":["seat","majority"],"rows":[{"seat":"P.106 Damansara","majority":124619},{"seat":"P.104 Subang","majority":115074},{"seat":"P.106 Damansara","majority":106903}],"row_count":3,"truncated":false,"elapsed_ms":105.67}}}
+```
+
+`tools/list` and other tools use the same `tools/call` envelope (`list_datasets`, `validate_sql`, `describe_dataset`, `sample_dataset`). Lake queries (`describe_dataset` / `sample_dataset` / `execute_query`) take a moment on first connect.
+
 ## Client config
 
 Cursor (user `~/.cursor/mcp.json` or project `.cursor/mcp.json`):
