@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import duckdb
@@ -10,6 +11,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, TextContent
 
 from electiondata_my_mcp import server
+from electiondata_my_mcp.duckdb_pool import DuckDBPool, PoolTimeoutError
 from electiondata_my_mcp.server import (
     ABSOLUTE_MAX_ROWS,
     build_election_query,
@@ -26,15 +28,16 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(autouse=True)
-def reset_connection() -> None:
-    server._connection = None
+def reset_pool() -> None:
+    server._pool = DuckDBPool()
     yield
-    server._connection = None
+    server._pool = DuckDBPool()
 
 
 @pytest.fixture
 def patched_connection(mock_duckdb_connection: MagicMock) -> MagicMock:
-    server._connection = mock_duckdb_connection
+    mock_duckdb_connection.cursor.return_value = mock_duckdb_connection
+    server._pool = DuckDBPool(connect_fn=lambda: mock_duckdb_connection)
     return mock_duckdb_connection
 
 
@@ -166,13 +169,33 @@ def test_build_election_query_returns_messages(mock_load_prompt: MagicMock) -> N
     assert "Who won GE-15?" in messages[1].content.text
 
 
-@patch("electiondata_my_mcp.server.connect")
-def test_get_connection_is_lazy(mock_connect: MagicMock, mock_duckdb_connection: MagicMock) -> None:
-    mock_connect.return_value = mock_duckdb_connection
-    first = server._get_connection()
-    second = server._get_connection()
-    assert first is second
-    mock_connect.assert_called_once()
+def test_pool_connect_is_lazy(mock_duckdb_connection: MagicMock) -> None:
+    mock_duckdb_connection.cursor.return_value = mock_duckdb_connection
+    connect_fn = MagicMock(return_value=mock_duckdb_connection)
+    server._pool = DuckDBPool(connect_fn=connect_fn)
+    with server._connection():
+        pass
+    with server._connection():
+        pass
+    connect_fn.assert_called_once()
+
+
+def test_execute_query_busy_when_pool_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    def acquire():
+        raise PoolTimeoutError("no DuckDB cursor free within 0.1s")
+
+    monkeypatch.setattr(server._pool, "acquire", acquire)
+    with pytest.raises(ToolError, match="Too many concurrent lake queries"):
+        execute_query("SELECT seat FROM headline_stats LIMIT 1")
+
+
+def test_describe_dataset_busy_when_pool_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    def acquire():
+        raise PoolTimeoutError("no DuckDB cursor free within 0.1s")
+
+    monkeypatch.setattr(server._pool, "acquire", acquire)
+    with pytest.raises(ToolError, match="Too many concurrent lake queries"):
+        describe_dataset("headline_stats")
 
 
 async def test_call_validate_sql_tool() -> None:
@@ -204,3 +227,18 @@ async def test_call_validate_sql_tool() -> None:
                 },
             )
         )
+
+
+async def test_timing_middleware_logs_elapsed_ms(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="electiondata_my_mcp.server")
+    async with Client(mcp, raise_exceptions=True) as client:
+        await client.call_tool(
+            "validate_sql",
+            {"sql": "SELECT seat FROM headline_stats LIMIT 1"},
+        )
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "electiondata_my_mcp.server"
+    ]
+    assert any("took" in message and "ms" in message for message in messages)

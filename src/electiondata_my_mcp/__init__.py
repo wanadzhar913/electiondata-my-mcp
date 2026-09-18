@@ -1,3 +1,3 @@
 """ElectionData.MY MCP server: query the public Malaysian election data lake with DuckDB SQL."""
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
