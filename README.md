@@ -32,6 +32,7 @@ An MCP server that lets an LLM answer questions about Malaysian elections by wri
 
 | Kind | Name | Purpose |
 | --- | --- | --- |
+| Tool | `get_query_guide` | Return the Query Builder schema and SQL rules; call this first. |
 | Tool | `list_datasets` | Every lake table, its URL, a description, and whether it streams. |
 | Tool | `describe_dataset` | Column names and types for one table. |
 | Tool | `validate_sql` | Check a query against the safety rules without running it. |

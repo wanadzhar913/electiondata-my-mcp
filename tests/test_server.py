@@ -17,6 +17,7 @@ from electiondata_my_mcp.server import (
     build_election_query,
     describe_dataset,
     execute_query,
+    get_query_guide,
     list_datasets,
     mcp,
     query_guide,
@@ -162,6 +163,12 @@ def test_query_guide_returns_prompt(mock_load_prompt: MagicMock) -> None:
 
 
 @patch("electiondata_my_mcp.server.load_prompt", return_value="query guide")
+def test_get_query_guide_returns_prompt(mock_load_prompt: MagicMock) -> None:
+    assert get_query_guide() == "query guide"
+    mock_load_prompt.assert_called_once()
+
+
+@patch("electiondata_my_mcp.server.load_prompt", return_value="query guide")
 def test_build_election_query_returns_messages(mock_load_prompt: MagicMock) -> None:
     messages = build_election_query("Who won GE-15?")
     assert len(messages) == 2
@@ -227,6 +234,25 @@ async def test_call_validate_sql_tool() -> None:
                 },
             )
         )
+
+
+@patch("electiondata_my_mcp.server.load_prompt", return_value="query guide content")
+async def test_call_get_query_guide_tool(mock_load_prompt: MagicMock) -> None:
+    async with Client(mcp, raise_exceptions=True) as client:
+        result = await client.call_tool("get_query_guide", {})
+        result.meta = None
+        assert result == snapshot(
+            CallToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text="query guide content",
+                    )
+                ],
+                structured_content={"result": "query guide content"},
+            )
+        )
+        mock_load_prompt.assert_called_once()
 
 
 async def test_timing_middleware_logs_elapsed_ms(caplog: pytest.LogCaptureFixture) -> None:
