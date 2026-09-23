@@ -132,6 +132,16 @@ def build_election_query(question: str) -> list[UserMessage]:
 
 
 @mcp.tool()
+def get_query_guide() -> str:
+    """Return the ElectionData.MY Query Builder schema and SQL rules.
+    
+    This guide documents the lake tables, column schemas, and query safety rules.
+    Call this tool first to understand the available data and how to query it.
+    """
+    return load_prompt()
+
+
+@mcp.tool()
 def list_datasets() -> list[dict[str, Any]]:
     """List available lake datasets and whether each is streamed over HTTP."""
     return [
