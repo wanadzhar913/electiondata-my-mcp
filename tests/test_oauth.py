@@ -9,6 +9,7 @@ from electiondata_my_mcp.oauth import (
     ENV_ISSUER_URL,
     ENV_REQUIRED_SCOPES,
     ENV_RESOURCE_URL,
+    ENV_TOKEN,
     ENV_TOKENS,
     StaticTokenVerifier,
     apply_oauth_config,
@@ -27,6 +28,7 @@ def _clear(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(ENV_ISSUER_URL, raising=False)
     monkeypatch.delenv(ENV_RESOURCE_URL, raising=False)
     monkeypatch.delenv(ENV_REQUIRED_SCOPES, raising=False)
+    monkeypatch.delenv(ENV_TOKEN, raising=False)
     monkeypatch.delenv(ENV_TOKENS, raising=False)
 
 
@@ -92,6 +94,7 @@ def test_apply_oauth_config_sets_and_clears(monkeypatch: pytest.MonkeyPatch) -> 
         assert mcp._token_verifier is None
     finally:
         monkeypatch.delenv(ENV_ISSUER_URL, raising=False)
+        monkeypatch.delenv(ENV_TOKEN, raising=False)
         monkeypatch.delenv(ENV_TOKENS, raising=False)
         apply_oauth_config(mcp)
 
@@ -100,7 +103,7 @@ def test_apply_oauth_config_sets_and_clears(monkeypatch: pytest.MonkeyPatch) -> 
     ("issuer", "tokens", "scopes", "match"),
     [
         ("", json.dumps(ALICE), None, "MCP_OAUTH_TOKENS is set"),
-        (ISSUER, "", None, "MCP_OAUTH_TOKENS is empty"),
+        (ISSUER, "", None, "are empty"),
         (ISSUER, "not-json", None, "JSON object"),
         (ISSUER, "[]", None, "non-empty JSON object"),
         (ISSUER, "{}", None, "non-empty JSON object"),
@@ -141,3 +144,41 @@ def test_load_oauth_config_rejects_bad_env(
         monkeypatch.setenv(ENV_REQUIRED_SCOPES, scopes)
     with pytest.raises(ValueError, match=match):
         load_oauth_config()
+
+
+async def test_mcp_oauth_token_is_a_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear(monkeypatch)
+    monkeypatch.setenv(ENV_ISSUER_URL, ISSUER)
+    monkeypatch.setenv(ENV_TOKEN, "s3cret")
+
+    config = load_oauth_config()
+    assert config is not None
+    accepted = await config.verifier.verify_token("s3cret")
+    assert accepted is not None
+    assert accepted.client_id == "static"
+    assert accepted.scopes == ["electiondata:read"]
+    assert await config.verifier.verify_token("other") is None
+
+
+def test_mcp_oauth_token_without_issuer_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear(monkeypatch)
+    monkeypatch.setenv(ENV_TOKEN, "s3cret")
+    with pytest.raises(ValueError, match="MCP_OAUTH_TOKEN is set"):
+        load_oauth_config()
+
+
+async def test_token_env_merges_with_token_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear(monkeypatch)
+    monkeypatch.setenv(ENV_ISSUER_URL, ISSUER)
+    monkeypatch.setenv(ENV_TOKEN, "plain-token")
+    monkeypatch.setenv(
+        ENV_TOKENS,
+        json.dumps({"plain-token": {"client_id": "alice"}, "other-token": {"client_id": "bob"}}),
+    )
+
+    config = load_oauth_config()
+    assert config is not None
+    plain = await config.verifier.verify_token("plain-token")
+    other = await config.verifier.verify_token("other-token")
+    assert plain is not None and plain.client_id == "alice"
+    assert other is not None and other.client_id == "bob"

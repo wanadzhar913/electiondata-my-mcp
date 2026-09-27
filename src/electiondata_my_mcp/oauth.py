@@ -1,9 +1,10 @@
 """Opt-in OAuth 2.1 resource server for Streamable HTTP.
 
 The process never issues tokens. When ``MCP_OAUTH_ISSUER_URL`` is set, ``/mcp``
-requires a bearer token listed in ``MCP_OAUTH_TOKENS``. ``GET /health`` stays
-open. Stdio and the in-memory test client never see the header, so they stay
-open too — same rule as the MCP SDK.
+requires a bearer token from ``MCP_OAUTH_TOKEN`` (one token) or
+``MCP_OAUTH_TOKENS`` (a JSON table). ``GET /health`` stays open. Stdio and the
+in-memory test client never see the header, so they stay open too — same rule
+as the MCP SDK.
 
 ``ponytail:`` the verifier is a static table, not JWT signature checks or
 RFC 7662 introspection. Swap ``StaticTokenVerifier`` for one of those when
@@ -26,10 +27,12 @@ from pydantic import AnyHttpUrl, ValidationError
 ENV_ISSUER_URL = "MCP_OAUTH_ISSUER_URL"
 ENV_RESOURCE_URL = "MCP_OAUTH_RESOURCE_URL"
 ENV_REQUIRED_SCOPES = "MCP_OAUTH_REQUIRED_SCOPES"
+ENV_TOKEN = "MCP_OAUTH_TOKEN"
 ENV_TOKENS = "MCP_OAUTH_TOKENS"
 
 DEFAULT_RESOURCE_URL = "http://127.0.0.1:8000/mcp"
 DEFAULT_REQUIRED_SCOPES = ("electiondata:read",)
+DEFAULT_TOKEN_CLIENT_ID = "static"
 
 
 class StaticTokenVerifier:
@@ -57,10 +60,13 @@ def load_oauth_config() -> OAuthConfig | None:
     reverse.
     """
     issuer_raw = os.environ.get(ENV_ISSUER_URL, "").strip()
+    token_raw = os.environ.get(ENV_TOKEN, "").strip()
     tokens_raw = os.environ.get(ENV_TOKENS)
+    tokens_set = tokens_raw is not None and bool(tokens_raw.strip())
     if not issuer_raw:
-        if tokens_raw is not None and tokens_raw.strip():
-            raise ValueError(f"{ENV_TOKENS} is set but {ENV_ISSUER_URL} is not")
+        if token_raw or tokens_set:
+            which = ENV_TOKEN if token_raw else ENV_TOKENS
+            raise ValueError(f"{which} is set but {ENV_ISSUER_URL} is not")
         return None
 
     resource_raw = os.environ.get(ENV_RESOURCE_URL, "").strip() or DEFAULT_RESOURCE_URL
@@ -72,7 +78,12 @@ def load_oauth_config() -> OAuthConfig | None:
         raise ValueError(f"Invalid OAuth URL: {error}") from error
     validate_issuer_url(issuer_url)
 
-    tokens = _parse_tokens(tokens_raw, resource=str(resource_url), default_scopes=scopes)
+    tokens = _collect_tokens(
+        token_raw,
+        tokens_raw if tokens_set else None,
+        resource=str(resource_url),
+        default_scopes=scopes,
+    )
     return OAuthConfig(
         auth=AuthSettings(
             issuer_url=issuer_url,
@@ -109,14 +120,39 @@ def _parse_scopes(raw: str | None) -> list[str]:
     return scopes
 
 
-def _parse_tokens(
-    raw: str | None,
+def _collect_tokens(
+    token_raw: str,
+    tokens_raw: str | None,
     *,
     resource: str,
     default_scopes: list[str],
 ) -> dict[str, AccessToken]:
-    if raw is None or not raw.strip():
-        raise ValueError(f"{ENV_ISSUER_URL} is set but {ENV_TOKENS} is empty")
+    """Accept ``MCP_OAUTH_TOKEN``, ``MCP_OAUTH_TOKENS``, or both.
+
+    The JSON table wins when the same bearer string is listed in both, so a
+    table entry can carry its own ``client_id`` and scopes.
+    """
+    tokens: dict[str, AccessToken] = {}
+    if tokens_raw:
+        tokens = _parse_tokens(tokens_raw, resource=resource, default_scopes=default_scopes)
+    if token_raw and token_raw not in tokens:
+        tokens[token_raw] = AccessToken(
+            token=token_raw,
+            client_id=DEFAULT_TOKEN_CLIENT_ID,
+            scopes=list(default_scopes),
+            resource=resource,
+        )
+    if not tokens:
+        raise ValueError(f"{ENV_ISSUER_URL} is set but {ENV_TOKEN} and {ENV_TOKENS} are empty")
+    return tokens
+
+
+def _parse_tokens(
+    raw: str,
+    *,
+    resource: str,
+    default_scopes: list[str],
+) -> dict[str, AccessToken]:
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as error:

@@ -110,7 +110,7 @@ uvicorn electiondata_my_mcp.http_app:app --proxy-headers --forwarded-allow-ips='
 
 ## OAuth
 
-Off unless `MCP_OAUTH_ISSUER_URL` is set. This process is a resource server: it checks `Authorization: Bearer` on `/mcp` and never signs anyone in. The issuer URL is advertised in the protected-resource metadata so a client can discover where to get a token. The process does not call that issuer. Tokens are a static table in `MCP_OAUTH_TOKENS`.
+Off unless `MCP_OAUTH_ISSUER_URL` is set. This process is a resource server: it checks `Authorization: Bearer` on `/mcp` and never signs anyone in. The issuer URL is advertised in the protected-resource metadata so a client can discover where to get a token. The process does not call that issuer. The bearer string itself is `MCP_OAUTH_TOKEN`.
 
 Stdio has no `Authorization` header, and neither does the in-memory `Client(server)` used by unit tests. Both stay open when OAuth is configured. `GET /health` stays open too, so a probe does not need a token.
 
@@ -118,14 +118,18 @@ Stdio has no `Authorization` header, and neither does the in-memory `Client(serv
 export MCP_OAUTH_ISSUER_URL='https://auth.example.com'
 export MCP_OAUTH_RESOURCE_URL='https://mcp.example.com/mcp'
 export MCP_OAUTH_REQUIRED_SCOPES='electiondata:read'
-export MCP_OAUTH_TOKENS='{"alice-token":{"client_id":"alice","scopes":["electiondata:read"]}}'
+export MCP_OAUTH_TOKEN='replace-with-a-bearer-token'
 
 electiondata-my-mcp --transport streamable-http --host 0.0.0.0 \
   --allowed-host mcp.example.com --allowed-host 'mcp.example.com:*' \
   --allowed-origin https://app.example.com
 ```
 
-`MCP_OAUTH_RESOURCE_URL` defaults to `http://127.0.0.1:8000/mcp`. It must be the exact URL clients connect to. `MCP_OAUTH_REQUIRED_SCOPES` defaults to `electiondata:read` (comma-separated). Each token is a JSON object with `client_id` and `scopes`; omit `scopes` to grant the required set. A token missing a required scope is `403`. An unknown token, or no token, is `401`.
+`MCP_OAUTH_TOKEN` is that bearer token. Clients send `Authorization: Bearer <MCP_OAUTH_TOKEN>`. It is granted `MCP_OAUTH_REQUIRED_SCOPES` and recorded as client id `static`.
+
+For more than one token, set `MCP_OAUTH_TOKENS` to a JSON object of bearer token → `{client_id, scopes}`. Omit `scopes` on an entry to grant the required set. A token named in both variables uses the JSON entry. A token missing a required scope is `403`. An unknown token, or no token, is `401`.
+
+`MCP_OAUTH_RESOURCE_URL` defaults to `http://127.0.0.1:8000/mcp`. It must be the exact URL clients connect to. `MCP_OAUTH_REQUIRED_SCOPES` defaults to `electiondata:read` (comma-separated).
 
 `POST /mcp` without a token:
 
@@ -144,7 +148,7 @@ from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 
 async with httpx2.AsyncClient(
-    headers={"Authorization": "Bearer alice-token"},
+    headers={"Authorization": "Bearer replace-with-a-bearer-token"},
 ) as http_client:
     transport = streamable_http_client(
         "https://mcp.example.com/mcp",
@@ -156,7 +160,7 @@ async with httpx2.AsyncClient(
 
 A client that still has to run discovery uses the SDK's `OAuthClientProvider` (`mcp.client.auth`) on that same `httpx2.AsyncClient(auth=...)`. This server does not implement the authorization-server half of that flow (no `/authorize`, no `/token`). The issuer named above does.
 
-The issuer URL must be `https`, except loopback (`http://127.0.0.1`, `http://localhost`) which the SDK allows for tests. Setting tokens without an issuer, or an issuer without tokens, fails at startup.
+The issuer URL must be `https`, except loopback (`http://127.0.0.1`, `http://localhost`) which the SDK allows for tests. Setting `MCP_OAUTH_TOKEN` or `MCP_OAUTH_TOKENS` without an issuer, or an issuer without either, fails at startup.
 
 ## Workers
 

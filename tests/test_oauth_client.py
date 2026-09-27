@@ -21,6 +21,7 @@ from electiondata_my_mcp.oauth import (
     ENV_ISSUER_URL,
     ENV_REQUIRED_SCOPES,
     ENV_RESOURCE_URL,
+    ENV_TOKEN,
     ENV_TOKENS,
 )
 from electiondata_my_mcp.server import mcp
@@ -37,6 +38,7 @@ def _enable(monkeypatch: pytest.MonkeyPatch, tokens: dict[str, dict[str, object]
     monkeypatch.setenv(ENV_ISSUER_URL, "https://auth.example.com")
     monkeypatch.setenv(ENV_RESOURCE_URL, RESOURCE)
     monkeypatch.setenv(ENV_REQUIRED_SCOPES, "electiondata:read")
+    monkeypatch.delenv(ENV_TOKEN, raising=False)
     monkeypatch.setenv(ENV_TOKENS, json.dumps(tokens))
 
 
@@ -44,6 +46,7 @@ def _disable(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(ENV_ISSUER_URL, raising=False)
     monkeypatch.delenv(ENV_RESOURCE_URL, raising=False)
     monkeypatch.delenv(ENV_REQUIRED_SCOPES, raising=False)
+    monkeypatch.delenv(ENV_TOKEN, raising=False)
     monkeypatch.delenv(ENV_TOKENS, raising=False)
     build_asgi_app()
 
@@ -70,6 +73,26 @@ async def _request(app: Starlette, method: str, path: str, **kwargs: object) -> 
     transport = httpx2.ASGITransport(app=app)
     async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
         return await client.request(method, path, **kwargs)
+
+
+async def test_client_calls_tool_with_token_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(ENV_ISSUER_URL, "https://auth.example.com")
+    monkeypatch.setenv(ENV_RESOURCE_URL, RESOURCE)
+    monkeypatch.setenv(ENV_REQUIRED_SCOPES, "electiondata:read")
+    monkeypatch.delenv(ENV_TOKENS, raising=False)
+    monkeypatch.setenv(ENV_TOKEN, "s3cret")
+    try:
+        app = build_asgi_app()
+        async with _connected(app, "s3cret") as client:
+            result = await client.call_tool(
+                "validate_sql",
+                {"sql": "SELECT seat FROM headline_stats LIMIT 1"},
+            )
+        assert result.is_error is False
+        assert result.structured_content is not None
+        assert result.structured_content["valid"] is True
+    finally:
+        _disable(monkeypatch)
 
 
 async def test_client_calls_tool_with_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
