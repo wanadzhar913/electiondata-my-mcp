@@ -133,6 +133,8 @@ docker build -t electiondata-my-mcp .
 docker run --rm -p 8000:8000 electiondata-my-mcp
 ```
 
+The Dockerfile uses BuildKit cache mounts (`RUN --mount=type=cache`). Docker Buildx does that by default. If `docker build` reports that `--mount` requires BuildKit, prefix the build with `DOCKER_BUILDKIT=1`.
+
 `GET /health` and `POST /mcp` listen on port 8000. A request whose `Host` is `localhost` or `127.0.0.1` (any port) is accepted, which is what `docker run -p 8000:8000` plus `curl http://127.0.0.1:8000/health` sends. Another hostname is `421` until you allowlist it, same as a non-container deploy:
 
 ```bash
