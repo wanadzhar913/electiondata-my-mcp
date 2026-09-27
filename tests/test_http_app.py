@@ -9,6 +9,7 @@ from electiondata_my_mcp.settings import ENV_ALLOWED_HOSTS, ENV_ALLOWED_ORIGINS,
 
 pytestmark = pytest.mark.unit
 
+
 async def _request(asgi_app, method: str, path: str, **kwargs) -> httpx.Response:
     transport = httpx.ASGITransport(app=asgi_app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:

@@ -173,6 +173,8 @@ uv run pytest -m integration --no-cov
 uv run ruff check
 ```
 
+The same Ruff check, Ruff format, and a few file checks also run as [pre-commit](https://pre-commit.com) hooks. After `uv sync --group dev`, install them once with `uv run pre-commit install`. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 Coverage is enforced at 80% on the unit suite. Integration tests are opt-in: they spawn `python -m electiondata_my_mcp` and hit the public Parquet lake, so they stay out of default pytest and ordinary PR CI. Maintainers can run them after unit tests pass (Actions **Run workflow**, or the `run-integration` PR label).
 
 When the lake gains a dataset, update `DATASETS` in `duckdb_lake.py` (we aim to maintain compatibility with the upstream `datasets.ts`) — the validator's allowlist and the `list_datasets` tool both derive from it.

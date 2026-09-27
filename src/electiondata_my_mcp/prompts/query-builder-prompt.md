@@ -14,7 +14,7 @@ You are helping me analyse Malaysian election results by writing SQL queries tha
 - `saluran_ballots_jhr_se15` / `saluran_stats_jhr_se15` / `voter_roll_jhr_se15` — Johor state election SE-15 (2022)
 - `voter_roll_nsn_se16` — Negeri Sembilan state election SE-16 (1 August 2026). Voter roll only — there is no `saluran_ballots_nsn_se16` or `saluran_stats_nsn_se16`.
 
-These 7 elections are the only ones with both saluran-level data and voter rolls available: `ge15`, `ge14`, `ge13`, `ge12`, `jhr_se16`, `nsn_se15`, and `jhr_se15`. 
+These 7 elections are the only ones with both saluran-level data and voter rolls available: `ge15`, `ge14`, `ge13`, `ge12`, `jhr_se16`, `nsn_se15`, and `jhr_se15`.
 
 There is 1 election with a voter roll only (no saluran data): `nsn_se16`.
 

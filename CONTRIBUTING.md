@@ -34,13 +34,17 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.11+.
 git clone https://github.com/wanadzhar913/electiondata-my-mcp.git
 cd electiondata-my-mcp
 uv sync --group dev
+uv run pre-commit install
 ```
+
+`pre-commit install` runs Ruff (lint and format) plus the file checks in `.pre-commit-config.yaml` on every commit. Run them across the tree with `uv run pre-commit run --all-files`. CI runs that same command.
 
 Run the checks you will see on a pull request:
 
 ```bash
 uv run ruff check
 uv run pytest -q
+uv run pre-commit run --all-files
 ```
 
 That pytest run is the **unit** suite (mocked DuckDB / httpx, no network). Coverage must stay at **80%** (`--cov-fail-under=80` in `pyproject.toml`). CI runs it on Ubuntu, macOS, and Windows against Python 3.11, 3.12, and 3.13.
