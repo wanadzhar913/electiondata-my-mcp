@@ -108,6 +108,56 @@ If TLS terminates at a proxy, tell uvicorn to trust `X-Forwarded-*` or redirects
 uvicorn electiondata_my_mcp.http_app:app --proxy-headers --forwarded-allow-ips='<proxy address>'
 ```
 
+## OAuth
+
+Off unless `MCP_OAUTH_ISSUER_URL` is set. This process is a resource server: it checks `Authorization: Bearer` on `/mcp` and never signs anyone in. The issuer URL is advertised in the protected-resource metadata so a client can discover where to get a token. The process does not call that issuer. Tokens are a static table in `MCP_OAUTH_TOKENS`.
+
+Stdio has no `Authorization` header, and neither does the in-memory `Client(server)` used by unit tests. Both stay open when OAuth is configured. `GET /health` stays open too, so a probe does not need a token.
+
+```bash
+export MCP_OAUTH_ISSUER_URL='https://auth.example.com'
+export MCP_OAUTH_RESOURCE_URL='https://mcp.example.com/mcp'
+export MCP_OAUTH_REQUIRED_SCOPES='electiondata:read'
+export MCP_OAUTH_TOKENS='{"alice-token":{"client_id":"alice","scopes":["electiondata:read"]}}'
+
+electiondata-my-mcp --transport streamable-http --host 0.0.0.0 \
+  --allowed-host mcp.example.com --allowed-host 'mcp.example.com:*' \
+  --allowed-origin https://app.example.com
+```
+
+`MCP_OAUTH_RESOURCE_URL` defaults to `http://127.0.0.1:8000/mcp`. It must be the exact URL clients connect to. `MCP_OAUTH_REQUIRED_SCOPES` defaults to `electiondata:read` (comma-separated). Each token is a JSON object with `client_id` and `scopes`; omit `scopes` to grant the required set. A token missing a required scope is `403`. An unknown token, or no token, is `401`.
+
+`POST /mcp` without a token:
+
+```text
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer error="invalid_token", error_description="Authentication required", resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/mcp"
+```
+
+`GET` that `resource_metadata` URL and the body is RFC 9728 Protected Resource Metadata: `resource`, `authorization_servers` (the issuer), and `scopes_supported`. A client that has never seen this server starts there, fetches a token from the issuer, and retries with `Authorization: Bearer`.
+
+A client that already holds a token puts it on the HTTP client the MCP client uses. `streamable_http_client` has no `auth=` argument; the header belongs on `httpx2.AsyncClient`:
+
+```python
+import httpx2
+from mcp import Client
+from mcp.client.streamable_http import streamable_http_client
+
+async with httpx2.AsyncClient(
+    headers={"Authorization": "Bearer alice-token"},
+) as http_client:
+    transport = streamable_http_client(
+        "https://mcp.example.com/mcp",
+        http_client=http_client,
+    )
+    async with Client(transport, mode="legacy") as client:
+        tools = await client.list_tools()
+```
+
+A client that still has to run discovery uses the SDK's `OAuthClientProvider` (`mcp.client.auth`) on that same `httpx2.AsyncClient(auth=...)`. This server does not implement the authorization-server half of that flow (no `/authorize`, no `/token`). The issuer named above does.
+
+The issuer URL must be `https`, except loopback (`http://127.0.0.1`, `http://localhost`) which the SDK allows for tests. Setting tokens without an issuer, or an issuer without tokens, fails at startup.
+
 ## Workers
 
 `--workers` maps to `uvicorn --workers`. The HTTP app explicitly uses the MCP SDK's stateless mode, so any worker can serve any request. This server has no elicitation / `requestState` tools, so you do not need sticky sessions or a shared `RequestStateSecurity` key.
