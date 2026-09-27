@@ -127,3 +127,99 @@ export MCP_DUCKDB_POOL_TIMEOUT=10
 ## What stays on stdio
 
 `electiondata-my-mcp` with no flags, `uvx electiondata-my-mcp==…`, and the Claude Desktop / Claude Code / Cursor **command** blocks in the [README](README.md#usage) still start `mcp.run()` over stdio. HTTP is opt-in.
+
+## Design
+
+The [Workers](#workers) section is the runbook. This is why it looks like that.
+
+### Export an ASGI app instead of `mcp.run("streamable-http")`
+
+`mcp.run("streamable-http")` starts one in-process uvicorn. It has no place to put a worker count, CORS, or `GET /health`. Production needs all three, so `http_app.py` builds a host Starlette around `mcp.streamable_http_app()` and the CLI (or a container) hands that app to uvicorn.
+
+Stdio stays the default. `--host`, `--port`, `--workers`, and the allowlist flags are rejected unless `--transport streamable-http`, so a desktop config cannot open a port by accident.
+
+### Stateless HTTP, one process per worker
+
+The HTTP transport sets `stateless_http=True`. A request does not depend on a process-local MCP session, so any worker can serve any request. There is no `Mcp-Session-Id` to pin, and no sticky-session requirement at the load balancer.
+
+This server has no elicitation and no `requestState` tools, so it also does not need a shared `RequestStateSecurity` key. Session affinity would only matter if a later request had to land on the worker that sealed the previous one.
+
+```mermaid
+flowchart TB
+    Clients[Concurrent MCP clients]
+
+    subgraph Worker1[Uvicorn worker 1]
+        Pool1[DuckDB cursor pool]
+        DB1[One DuckDB database]
+        Pool1 --> DB1
+    end
+
+    subgraph Worker2[Uvicorn worker 2]
+        Pool2[DuckDB cursor pool]
+        DB2[One DuckDB database]
+        Pool2 --> DB2
+    end
+
+    Clients -->|Stateless request| Worker1
+    Clients -->|Stateless request| Worker2
+
+    DB1 --> Lake[ElectionData.MY Parquet lake]
+    DB2 --> Lake
+```
+
+CORS and DNS-rebinding protection sit on that same app. Methods and `Mcp-*` headers are the protocol, not a deployment choice, so they are fixed in code. `Host` and `Origin` allowlists are the deployment choice: localhost by default, because a public hostname that is not allowlisted is `421`. Behind a proxy that already checks `Host`, turning DNS-rebinding protection off is the honest setting. If TLS ends at that proxy, uvicorn has to trust `X-Forwarded-*` or it will redirect `/mcp` to `http://`.
+
+`GET /health` is unauthenticated on purpose. A probe should not need a session or a token to learn that the process is up.
+
+### One DuckDB database per process, cursors for concurrency
+
+Each worker is its own process. The first query in that process lazily opens one root DuckDB connection, installs `httpfs`, and registers the lake views. Later queries do not open another database. They check out a `cursor()` from that root connection. DuckDB connections are not safe to share across threads; cursors over the same database are.
+
+```mermaid
+sequenceDiagram
+    participant A as Query A
+    participant B as Query B
+    participant P as Cursor pool
+    participant D as Root DuckDB connection
+    participant L as Data lake
+
+    A->>P: Acquire cursor
+    P->>D: Lazily connect and create cursor 1
+    B->>P: Acquire cursor
+    P->>D: Create cursor 2
+
+    par Concurrent execution
+        A->>L: Read required Parquet ranges
+        B->>L: Read required Parquet ranges
+    end
+
+    A->>P: Return cursor 1
+    B->>P: Return cursor 2
+```
+
+Cursor creation takes a lock so two threads cannot both decide they are the one to `connect()`. Idle cursors sit in a `LifoQueue`. Checkout returns the cursor in a `finally` block, including when the query raises, so a failed query does not shrink the pool.
+
+`LifoQueue` is deliberate. Handing back the most recently used cursor keeps a small set warm — the same httpfs connections and metadata cache — instead of round-robining across every cursor and cold-starting each one. `queue.get` does not promise fairness among waiters. Under sustained saturation a given request can lose the race; that is a reason for a short timeout and a clear busy error, not a long hopeful wait.
+
+### Backpressure
+
+The pool size is fixed (`MCP_DUCKDB_POOL_SIZE`, default 4). When every cursor is busy, the next query waits instead of opening unbounded DuckDB work. After `MCP_DUCKDB_POOL_TIMEOUT` seconds (default 10) it gets `PoolTimeoutError`, which the tool layer turns into "Too many concurrent lake queries; retry shortly."
+
+```mermaid
+flowchart LR
+    Request[Incoming query] --> Available{Cursor available?}
+    Available -->|Yes| Execute[Execute query]
+    Available -->|No| Wait[Wait for checkout timeout]
+    Wait --> Freed{Cursor returned?}
+    Freed -->|Yes| Execute
+    Freed -->|No| Busy[Return retry shortly tool error]
+    Execute --> Return[Return cursor to pool]
+```
+
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| `MCP_DUCKDB_POOL_SIZE` | Cursors per worker | 4 |
+| `MCP_DUCKDB_POOL_TIMEOUT` | Max checkout wait | 10 seconds |
+| `--workers` | uvicorn worker processes | 1 |
+
+The cap on simultaneous lake queries for the machine is about `workers × MCP_DUCKDB_POOL_SIZE`. Four workers and a pool of four is sixteen. Each worker still owns one DuckDB database and still registers the lake views once.

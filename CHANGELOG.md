@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Document the Streamable HTTP design in `PRODUCTION.md`: ASGI app instead of `mcp.run("streamable-http")`, stateless workers, the per-process DuckDB cursor pool, and backpressure.
+
 ## 0.2.0 — 2026-09-19
 
 - Optional Streamable HTTP transport via `mcp.streamable_http_app()`, CORS, DNS-rebinding allowlists, `GET /health`, and uvicorn `--workers`.
