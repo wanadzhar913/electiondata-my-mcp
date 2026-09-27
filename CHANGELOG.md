@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Document the Streamable HTTP design in `PRODUCTION.md`: ASGI app instead of `mcp.run("streamable-http")`, stateless workers, the per-process DuckDB cursor pool, and backpressure.
+- Add a production Dockerfile for Streamable HTTP (`electiondata_my_mcp.http_app:app`, four uvicorn workers) and document `docker build` / `docker run` in `PRODUCTION.md`.
 
 ## 0.2.0 — 2026-09-19
 

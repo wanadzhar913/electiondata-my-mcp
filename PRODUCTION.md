@@ -124,6 +124,28 @@ export MCP_DUCKDB_POOL_SIZE=4
 export MCP_DUCKDB_POOL_TIMEOUT=10
 ```
 
+## Docker
+
+The image runs that same app: `uvicorn electiondata_my_mcp.http_app:app` on `0.0.0.0:8000` with four workers. Dev dependencies are not installed (`uv sync --frozen --no-dev`).
+
+```bash
+docker build -t electiondata-my-mcp .
+docker run --rm -p 8000:8000 electiondata-my-mcp
+```
+
+`GET /health` and `POST /mcp` listen on port 8000. A request whose `Host` is `localhost` or `127.0.0.1` (any port) is accepted, which is what `docker run -p 8000:8000` plus `curl http://127.0.0.1:8000/health` sends. Another hostname is `421` until you allowlist it, same as a non-container deploy:
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e MCP_ALLOWED_HOSTS='mcp.example.com,mcp.example.com:*' \
+  -e MCP_ALLOWED_ORIGINS='https://app.example.com' \
+  electiondata-my-mcp
+```
+
+`APP_VERSION` is the image build arg `VERSION` (default `0.2.0`). The server does not read it; it only labels the image (`docker build --build-arg VERSION=0.2.0`).
+
+Pool size is still per worker. The image's four workers and the default `MCP_DUCKDB_POOL_SIZE=4` cap the machine at about sixteen in-flight lake queries. Override the pool the same way as the allowlists (`-e MCP_DUCKDB_POOL_SIZE=4`).
+
 ## What stays on stdio
 
 `electiondata-my-mcp` with no flags, `uvx electiondata-my-mcp==…`, and the Claude Desktop / Claude Code / Cursor **command** blocks in the [README](README.md#usage) still start `mcp.run()` over stdio. HTTP is opt-in.
