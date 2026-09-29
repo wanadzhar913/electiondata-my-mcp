@@ -10,6 +10,7 @@ from electiondata_my_mcp.settings import ENV_ALLOWED_HOSTS, ENV_ALLOWED_ORIGINS,
 
 pytestmark = pytest.mark.unit
 
+
 def test_parse_args_defaults_to_stdio() -> None:
     args = parse_args([])
     assert args.transport == "stdio"

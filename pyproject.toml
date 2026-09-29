@@ -32,10 +32,11 @@ packages = ["src/electiondata_my_mcp"]
 [dependency-groups]
 dev = [
     "inline-snapshot>=0.35.4",
+    "pre-commit>=4.6.2",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
-    "ruff>=0.11.0",
+    "ruff==0.16.6",
 ]
 
 # uv special-cases `dev` and would otherwise install it on every `uv sync`.
