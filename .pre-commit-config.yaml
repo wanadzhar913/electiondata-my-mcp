@@ -1,12 +1,15 @@
 # https://pre-commit.com
 # Install once per clone: uv run pre-commit install
 # Run on demand:         uv run pre-commit run --all-files
+# Upstream copy-prompt.md is copied verbatim into prompts/; do not normalize whitespace there.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
+        exclude: ^src/electiondata_my_mcp/prompts/
       - id: end-of-file-fixer
+        exclude: ^src/electiondata_my_mcp/prompts/
       - id: check-yaml
       - id: check-toml
       - id: check-json
@@ -14,12 +17,13 @@ repos:
       - id: check-merge-conflict
       - id: check-case-conflict
       - id: mixed-line-ending
+        exclude: ^src/electiondata_my_mcp/prompts/
       - id: debug-statements
 
-  # Pin matches ruff in uv.lock so `uv run ruff` and the hook agree.
+  # rev must match the pinned ruff dev dependency in pyproject.toml.
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.6
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
       - id: ruff-format

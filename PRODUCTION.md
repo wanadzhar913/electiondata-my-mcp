@@ -102,7 +102,7 @@ uvicorn electiondata_my_mcp.http_app:app --host 0.0.0.0 --workers 4
 - CORS methods and `Mcp-*` headers are fixed (protocol, not deployment). `Mcp-Session-Id` is exposed so a browser client can read the session header.
 - Behind a reverse proxy that already controls `Host`, `--disable-dns-rebinding-protection` (or `MCP_ENABLE_DNS_REBINDING_PROTECTION=false`) is the honest setting.
 
-If TLS terminates at a proxy, tell uvicorn to trust `X-Forwarded-*` or redirects from `/mcp` to `/mcp/` will be issued as `http://` and MCP clients will refuse them:
+If TLS terminates at a proxy, tell uvicorn to trust `X-Forwarded-*` or redirects from `/mcp/` to `/mcp` will be issued as `http://` and MCP clients will refuse them. POST directly to `/mcp` (no trailing slash) is not redirected — point clients at `/mcp`, not `/mcp/`:
 
 ```bash
 uvicorn electiondata_my_mcp.http_app:app --proxy-headers --forwarded-allow-ips='<proxy address>'
@@ -158,7 +158,7 @@ The [Workers](#workers) section is the runbook. This is why it looks like that.
 
 ### Export an ASGI app instead of `mcp.run("streamable-http")`
 
-`mcp.run("streamable-http")` starts one in-process uvicorn. It has no place to put a worker count, CORS, or `GET /health`. Production needs all three, so `http_app.py` builds a host Starlette around `mcp.streamable_http_app()` and the CLI (or a container) hands that app to uvicorn.
+`mcp.run("streamable-http")` starts one in-process uvicorn with no `--workers` knob. Production also needs CORS and DNS-rebinding settings on a host Starlette app that wraps `mcp.streamable_http_app()` and runs the MCP session-manager lifespan on the app that actually serves requests. `http_app.py` builds that app; the CLI (or a container) hands it to uvicorn with an explicit worker count. `GET /health` is registered on the same `mcp` instance (`@mcp.custom_route`) and would still be served by `mcp.run`; the custom ASGI export is for workers and the outer middleware stack, not for adding `/health`.
 
 Stdio stays the default. `--host`, `--port`, `--workers`, and the allowlist flags are rejected unless `--transport streamable-http`, so a desktop config cannot open a port by accident.
 
@@ -191,7 +191,7 @@ flowchart TB
     DB2 --> Lake
 ```
 
-CORS and DNS-rebinding protection sit on that same app. Methods and `Mcp-*` headers are the protocol, not a deployment choice, so they are fixed in code. `Host` and `Origin` allowlists are the deployment choice: localhost by default, because a public hostname that is not allowlisted is [`421`](https://py.sdk.modelcontextprotocol.io/troubleshooting/?h=421#421-misdirected-request-invalid-host-header). Behind a proxy that already checks `Host`, turning DNS-rebinding protection off is the honest setting. If TLS ends at that proxy, uvicorn has to trust `X-Forwarded-*` or it will redirect `/mcp` to `http://`.
+CORS and DNS-rebinding protection sit on that same app. Methods and `Mcp-*` headers are the protocol, not a deployment choice, so they are fixed in code. `Host` and `Origin` allowlists are the deployment choice: localhost by default, because a public hostname that is not allowlisted is [`421`](https://py.sdk.modelcontextprotocol.io/troubleshooting/?h=421#421-misdirected-request-invalid-host-header). Behind a proxy that already checks `Host`, turning DNS-rebinding protection off is the honest setting. If TLS ends at that proxy, uvicorn has to trust `X-Forwarded-*` or a redirect from `/mcp/` to `/mcp` will be issued as `http://` (POST to `/mcp` itself is not redirected).
 
 `GET /health` is unauthenticated on purpose. A probe should not need a session or a token to learn that the process is up.
 
@@ -221,9 +221,7 @@ sequenceDiagram
     B->>P: Return cursor 2
 ```
 
-Cursor creation takes a lock so two threads cannot both decide they are the one to `connect()`. Idle cursors sit in a `LifoQueue`. Checkout returns the cursor in a `finally` block, including when the query raises, so a failed query does not shrink the pool.
-
-`LifoQueue` is deliberate. Handing back the most recently used cursor keeps a small set warm — the same httpfs connections and metadata cache — instead of round-robining across every cursor and cold-starting each one. `queue.get` does not promise fairness among waiters. Under sustained saturation a given request can lose the race; that is a reason for a short timeout and a clear busy error, not a long hopeful wait.
+Cursor creation takes a lock so two threads cannot both decide they are the one to `connect()`. Idle cursors sit in a `LifoQueue` so checkout prefers the most recently returned handle when several are idle; that does not warm lake I/O separately per cursor, because `connect()` runs once per worker, httpfs and the registered views live on the root connection, and every cursor shares that database. Checkout returns the cursor in a `finally` block, including when the query raises, so a failed query does not shrink the pool. `queue.get` does not promise fairness among waiters. Under sustained saturation a given request can lose the race; that is a reason for a short timeout and a clear busy error, not a long hopeful wait.
 
 ### Backpressure
 

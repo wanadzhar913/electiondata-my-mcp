@@ -1,13 +1,11 @@
-# ElectionData.MY MCP Server (unofficial)
+# ElectionData.MY MCP Server
 
 [![PyPI](https://img.shields.io/pypi/v/electiondata-my-mcp)](https://pypi.org/project/electiondata-my-mcp/)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/electiondata-my-mcp?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/electiondata-my-mcp)
 
-An MCP server that lets an LLM answer questions about Malaysian elections by writing DuckDB SQL against the public ElectionData.MY [data lake](https://electiondata.my/data-catalogue/) — every Parliament and DUN contest ever held, down to saluran-level ballots and voter rolls.
+An MCP server that lets an LLM answer questions about Malaysian elections by writing DuckDB SQL against the public [ElectionData.MY data lake](https://electiondata.my/data-catalogue/) — every Parliament and DUN contest ever held, down to saluran-level ballots and voter rolls. **No API key, no database to provision, no data to download.** The lake is public Parquet over HTTP and DuckDB reads it in place.
 
-**No API key, no database to provision, no data to download.** The lake is public Parquet over HTTP and DuckDB reads it in place. This is with special thanks to the [ElectionData.MY](https://electiondata.my/) team for making the data available!
-
-**NOTE:** This is an *unofficial project* and is not affiliated with the ElectionData.MY team. Please support their work by visiting their website!
+**NOTE:** This is an *unofficial project* and is not affiliated with the ElectionData.MY team. Special thanks to the [ElectionData.MY](https://electiondata.my/) team for making the data available and please support their work by visiting their website!
 
 - [What's exposed](#whats-exposed)
 - [Installation](#installation)
@@ -40,9 +38,6 @@ An MCP server that lets an LLM answer questions about Malaysian elections by wri
 | Tool | `execute_query` | Run validated read-only SQL; returns columns, rows, and elapsed time. |
 | Resource | `electiondata://query-guide` | Schema and SQL rules from the [Query Builder](https://electiondata.my/query-builder/). |
 | Prompt | `build_election_query` | Loads the guide and asks for a single query answering a question. |
-
-The guide is the Query Builder's own [`copy-prompt.md`](https://github.com/electiondata-my/meco-front/blob/main/src/components/tools/query-builder/copy-prompt.md),
-fetched at runtime and cached for 24 hours under `$XDG_CACHE_HOME/electiondata-my-mcp/`. If GitHub is unreachable, a stale cache is used, then the bundled copy.
 
 ## Installation
 
@@ -168,20 +163,16 @@ uv run pytest -q
 uv run pytest -m integration --no-cov
 ```
 
-5. Run the linter
+5. Install the pre-commit hooks
 ```bash
-uv run ruff check
+uv run pre-commit install
 ```
 
-The same Ruff check, Ruff format, and a few file checks also run as [pre-commit](https://pre-commit.com) hooks. After `uv sync --group dev`, install them once with `uv run pre-commit install`. See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-Coverage is enforced at 80% on the unit suite. Integration tests are opt-in: they spawn `python -m electiondata_my_mcp` and hit the public Parquet lake, so they stay out of default pytest and ordinary PR CI. Maintainers can run them after unit tests pass (Actions **Run workflow**, or the `run-integration` PR label).
-
-When the lake gains a dataset, update `DATASETS` in `duckdb_lake.py` (we aim to maintain compatibility with the upstream `datasets.ts`) — the validator's allowlist and the `list_datasets` tool both derive from it.
+For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### From a local checkout
 
-After cloning and `uv sync`, launch the server over stdio from the repo:
+After cloning and `uv sync --group dev`, launch the server over stdio from the repo:
 
 ```bash
 uv run mcp run src/electiondata_my_mcp/server.py
