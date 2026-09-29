@@ -5,7 +5,7 @@
 
 An MCP server that lets an LLM answer questions about Malaysian elections by writing DuckDB SQL against the public [ElectionData.MY data lake](https://electiondata.my/data-catalogue/) — every Parliament and DUN contest ever held, down to saluran-level ballots and voter rolls. **No API key, no database to provision, no data to download.** The lake is public Parquet over HTTP and DuckDB reads it in place.
 
-**NOTE:** This is an *unofficial project* and is not affiliated with the ElectionData.MY team. Special thanks to the [ElectionData.MY](https://electiondata.my/) team for making the data available and please support their work by visiting their website!
+***NOTE:** This is an **unofficial project** and is not affiliated with the [ElectionData.MY](https://electiondata.my/) team. Special thanks to them for making the data available and please support their work by visiting their website!*
 
 - [What's exposed](#whats-exposed)
 - [Installation](#installation)
@@ -15,8 +15,6 @@ An MCP server that lets an LLM answer questions about Malaysian elections by wri
   - [Cursor](#cursor)
   - [Streamable HTTP](#streamable-http)
   - [Sample Conversations](#sample-conversations)
-- [Development](#development)
-  - [From a local checkout](#from-a-local-checkout)
 - [Design & Implementation](#design--implementation)
   - [The DuckDB-WASM approach](#the-duckdb-wasm-approach)
   - [Safety model](#safety-model)
@@ -135,69 +133,6 @@ To serve Streamable HTTP (CORS, `/health`, workers) instead of stdio, see [PRODU
 - [Q&A with Claude Code ❯ How has the percentage of female MPs changed over time?](https://claude.ai/code/session_01CYGw2Zvt7CPcDqbNLUKwag)
 - [Charts from Claude Code Session](https://claude.ai/code/artifact/2dbd6527-de6f-4d1e-b8ee-095116d9f902)
 
-## Development
-
-1. Clone the repository
-```bash
-git clone https://github.com/wanadzhar913/electiondata-my-mcp.git
-cd electiondata-my-mcp
-```
-
-2. Install the development dependencies
-```bash
-uv sync --group dev
-```
-
-3. Run & validate the server with the [MCP Inspector](https://modelcontextprotocol.io/docs/2026-07-28/tools/inspector):
-
-```bash
-uv run mcp dev src/electiondata_my_mcp/server.py
-```
-
-4. Run the tests
-```bash
-# unit (mocked DuckDB / httpx; default, used in CI)
-uv run pytest -q
-
-# integration: spawn the real stdio server and query lake.electiondata.my
-uv run pytest -m integration --no-cov
-```
-
-5. Install the pre-commit hooks
-```bash
-uv run pre-commit install
-```
-
-For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-### From a local checkout
-
-After cloning and `uv sync --group dev`, launch the server over stdio from the repo:
-
-```bash
-uv run mcp run src/electiondata_my_mcp/server.py
-```
-
-Point a client at the checkout instead of PyPI — the same block works in Claude Desktop, Claude Code, and Cursor; only the config file path changes:
-
-```json
-{
-  "mcpServers": {
-    "electiondata-my": {
-      "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "/absolute/path/to/electiondata-my-mcp",
-        "mcp",
-        "run",
-        "src/electiondata_my_mcp/server.py"
-      ]
-    }
-  }
-}
-```
-
 ## Design & Implementation
 
 ### The DuckDB-WASM approach
@@ -314,7 +249,7 @@ The lake is for bulk and analytical work. For focused lookups — a candidate's 
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for more details on local setup, the kinds of changes that help, and how pull requests are reviewed.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for more details on local setup, the kinds of changes that help, and how pull requests are reviewed. Do also consider raising an issue first.
 
 ## License
 

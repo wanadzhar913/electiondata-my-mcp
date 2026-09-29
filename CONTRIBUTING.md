@@ -30,52 +30,87 @@ Usually out of scope:
 
 Requires [uv](https://docs.astral.sh/uv/) and Python 3.11+.
 
+1. Clone the repository
+
+  ```bash
+  git clone https://github.com/<YOUR_USERNAME>/electiondata-my-mcp.git
+  cd electiondata-my-mcp
+  ```
+
+2. Install the development dependencies
+
+  ```bash
+  uv sync --group dev
+  ```
+
+3. Run and validate the server with the [MCP Inspector](https://modelcontextprotocol.io/docs/2026-07-28/tools/inspector)
+
+  ```bash
+  uv run mcp dev src/electiondata_my_mcp/server.py
+  ```
+
+4. Run the tests
+
+  ```bash
+  # unit (mocked DuckDB / httpx; default, used in CI)
+  uv run pytest -q
+
+  # integration: spawn the real stdio server and query lake.electiondata.my
+  uv run pytest -m integration --no-cov
+  ```
+
+  The unit suite mocks DuckDB and httpx and does not use the network. Coverage must stay at **80%** (`--cov-fail-under=80` in `pyproject.toml`). CI runs it on Ubuntu, macOS, and Windows against Python 3.11, 3.12, and 3.13.
+
+  `--no-cov` is required for the integration run: a handful of live tests will not meet the 80% gate. These tests spawn `python -m electiondata_my_mcp` and query `headline_stats` over HTTP; they are not the ElectionData.MY REST API.
+
+5. Install the pre-commit hooks
+
+  ```bash
+  uv run pre-commit install
+  ```
+
+  `pre-commit install` runs Ruff (lint and format) plus the file checks in `.pre-commit-config.yaml` on every commit. Run the same checks a pull request runs across the tree:
+
+  ```bash
+  uv run ruff check
+  uv run pytest -q
+  uv run pre-commit run --all-files
+  ```
+
+6. You can also run SQL against the lake without MCP:
+
+  ```bash
+  uv run src/electiondata_my_mcp/duckdb_lake.py --tables
+  uv run src/electiondata_my_mcp/duckdb_lake.py \
+      "SELECT seat, majority FROM headline_stats ORDER BY majority DESC LIMIT 5"
+  ```
+
+### From a local checkout
+
+To point a desktop client at your checkout instead of PyPI, after cloning and `uv sync --group dev`, launch the server over stdio from the repo:
+
 ```bash
-git clone https://github.com/wanadzhar913/electiondata-my-mcp.git
-cd electiondata-my-mcp
-uv sync --group dev
-uv run pre-commit install
+uv run mcp run src/electiondata_my_mcp/server.py
 ```
 
-`pre-commit install` runs Ruff (lint and format) plus the file checks in `.pre-commit-config.yaml` on every commit. Run them across the tree with `uv run pre-commit run --all-files`. CI runs that same command.
+Point a client at the checkout instead of PyPI — the same block works in Claude Desktop, Claude Code, and Cursor; only the config file path changes:
 
-Run the checks you will see on a pull request:
-
-```bash
-uv run ruff check
-uv run pytest -q
-uv run pre-commit run --all-files
-```
-
-That pytest run is the **unit** suite (mocked DuckDB / httpx, no network). Coverage must stay at **80%** (`--cov-fail-under=80` in `pyproject.toml`). CI runs it on Ubuntu, macOS, and Windows against Python 3.11, 3.12, and 3.13.
-
-To exercise the live stdio server against `lake.electiondata.my`:
-
-```bash
-uv run pytest -m integration --no-cov
-```
-
-`--no-cov` is required: a handful of live tests will not meet the 80% gate. These tests spawn `python -m electiondata_my_mcp` and query `headline_stats` over HTTP; they are not the ElectionData.MY REST API.
-
-CI does not run them on an ordinary PR. After the unit matrix is green, a maintainer can:
-
-1. Open **Actions → Test and Publish → Run workflow**, choose the PR branch, and leave **run_integration** checked; or
-2. Add the `run-integration` label to the PR (unit tests re-run, then the live suite).
-
-Exercise the server with the [MCP Inspector](https://modelcontextprotocol.io/docs/2026-07-28/tools/inspector):
-
-```bash
-uv run mcp dev src/electiondata_my_mcp/server.py
-```
-
-To point a desktop client at your checkout instead of PyPI, see [From a local checkout](README.md#from-a-local-checkout) in the README.
-
-You can also run SQL against the lake without MCP:
-
-```bash
-uv run src/electiondata_my_mcp/duckdb_lake.py --tables
-uv run src/electiondata_my_mcp/duckdb_lake.py \
-    "SELECT seat, majority FROM headline_stats ORDER BY majority DESC LIMIT 5"
+```json
+{
+  "mcpServers": {
+    "electiondata-my": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/absolute/path/to/electiondata-my-mcp",
+        "mcp",
+        "run",
+        "src/electiondata_my_mcp/server.py"
+      ]
+    }
+  }
+}
 ```
 
 ## Layout
@@ -127,10 +162,6 @@ Keep the existing contract unless you are explicitly changing it, and cover the 
 4. Open a pull request against `main`. Describe the problem, the approach, and how you tested it.
 
 Please do not commit `.env`, credentials, or local DuckDB cache files.
-
-## Releases
-
-Maintainers publish from a GitHub Release whose tag (`vX.Y.Z`) matches `version` in `pyproject.toml`. The [publish workflow](.github/workflows/publish.yml) runs the test matrix, then uploads to PyPI via trusted publishing.
 
 ## Questions
 
