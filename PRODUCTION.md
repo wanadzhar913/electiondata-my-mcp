@@ -110,26 +110,39 @@ uvicorn electiondata_my_mcp.http_app:app --proxy-headers --forwarded-allow-ips='
 
 ## OAuth
 
-Off unless `MCP_OAUTH_ISSUER_URL` is set. This process is a resource server: it checks `Authorization: Bearer` on `/mcp` and never signs anyone in. The issuer URL is advertised in the protected-resource metadata so a client can discover where to get a token. The process does not call that issuer. The bearer string itself is `MCP_OAUTH_TOKEN`.
+Off unless `MCP_OAUTH_ISSUER_URL` is set. This process is an OAuth 2.1 [resource server](https://py.sdk.modelcontextprotocol.io/run/authorization/): it verifies the access token on every `/mcp` request and never signs anyone in or issues a token. Your identity provider (Keycloak, Auth0, Entra ID, Okta, …) is the authorization server.
 
-Stdio has no `Authorization` header, and neither does the in-memory `Client(server)` used by unit tests. Both stay open when OAuth is configured. `GET /health` stays open too, so a probe does not need a token.
+Stdio has no `Authorization` header, and neither does the in-memory `Client(server)` used by unit tests. Both stay open when OAuth is configured. `GET /health` and the protected-resource metadata stay open too.
 
 ```bash
-export MCP_OAUTH_ISSUER_URL='https://auth.example.com'
+export MCP_OAUTH_ISSUER_URL='https://auth.example.com/realms/electiondata'
 export MCP_OAUTH_RESOURCE_URL='https://mcp.example.com/mcp'
-export MCP_OAUTH_REQUIRED_SCOPES='electiondata:read'
-export MCP_OAUTH_TOKEN='replace-with-a-bearer-token'
+export MCP_OAUTH_JWKS_URL='https://auth.example.com/realms/electiondata/protocol/openid-connect/certs'
 
 electiondata-my-mcp --transport streamable-http --host 0.0.0.0 \
   --allowed-host mcp.example.com --allowed-host 'mcp.example.com:*' \
   --allowed-origin https://app.example.com
 ```
 
-`MCP_OAUTH_TOKEN` is that bearer token. Clients send `Authorization: Bearer <MCP_OAUTH_TOKEN>`. It is granted `MCP_OAUTH_REQUIRED_SCOPES` and recorded as client id `static`.
+| Variable | |
+| --- | --- |
+| `MCP_OAUTH_ISSUER_URL` | The authorization server's `issuer`, character for character (Auth0's ends in `/`). Clients compare it to the `issuer` in that server's metadata and refuse a mismatch. |
+| `MCP_OAUTH_RESOURCE_URL` | Required. The public URL clients connect to, including `/mcp`. It is the RFC 8707 resource a token must be issued for. |
+| `MCP_OAUTH_JWKS_URL` | Verify JWT access tokens locally against this JWKS. |
+| `MCP_OAUTH_INTROSPECTION_URL` | Or: ask this RFC 7662 endpoint about each token (opaque tokens). Set exactly one of the two. |
+| `MCP_OAUTH_INTROSPECTION_CLIENT_ID` / `_SECRET` | This server's credentials for the introspection endpoint (HTTP Basic). Both or neither. |
+| `MCP_OAUTH_AUDIENCE` | Optional. The `aud` your authorization server puts in tokens when it is not the resource URL (an Auth0 API identifier, an Entra application ID URI). Defaults to `MCP_OAUTH_RESOURCE_URL`. |
+| `MCP_OAUTH_REQUIRED_SCOPES` | Comma-separated. Every token must carry all of them. Default `electiondata:read`. |
 
-For more than one token, set `MCP_OAUTH_TOKENS` to a JSON object of bearer token → `{client_id, scopes}`. Omit `scopes` on an entry to grant the required set. A token named in both variables uses the JSON entry. A token missing a required scope is `403`. An unknown token, or no token, is `401`.
+A token is accepted only if it:
 
-`MCP_OAUTH_RESOURCE_URL` defaults to `http://127.0.0.1:8000/mcp`. It must be the exact URL clients connect to. `MCP_OAUTH_REQUIRED_SCOPES` defaults to `electiondata:read` (comma-separated).
+- is signed by a key in the JWKS (asymmetric keys only, with the algorithm that key names), or is `active` according to introspection.
+- has `iss` equal to `MCP_OAUTH_ISSUER_URL` (introspection may omit `iss`).
+- has `aud` containing `MCP_OAUTH_AUDIENCE`, which defaults to the resource URL.
+- is not expired and not before `nbf` (30 s leeway on JWTs).
+- carries every required scope in `scope` or `scp`.
+
+A missing or rejected token is `401`, and a missing scope is `403`. A JWKS or introspection endpoint that is down, slow (10 s timeout) or returns an error rejects the token; there is no fallback. JWKS keys are cached for an hour, and a token with an unknown `kid` triggers a refetch at most every 30 s, which picks up key rotation.
 
 `POST /mcp` without a token:
 
@@ -138,29 +151,11 @@ HTTP/1.1 401 Unauthorized
 WWW-Authenticate: Bearer error="invalid_token", error_description="Authentication required", resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/mcp"
 ```
 
-`GET` that `resource_metadata` URL and the body is RFC 9728 Protected Resource Metadata: `resource`, `authorization_servers` (the issuer), and `scopes_supported`. A client that has never seen this server starts there, fetches a token from the issuer, and retries with `Authorization: Bearer`.
+`GET` that `resource_metadata` URL and the body is RFC 9728 Protected Resource Metadata: `resource`, `authorization_servers` (the issuer) and `scopes_supported`. A client that has never seen this server starts there: 401, then the metadata, then the authorization server, then a token, then a retry with `Authorization: Bearer`. MCP clients that support OAuth (and the SDK's [`OAuthClientProvider`](https://py.sdk.modelcontextprotocol.io/client/oauth-clients/)) do all of that themselves. They send the resource URL as the RFC 8707 `resource` parameter, so an authorization server that honours it puts the resource URL in `aud` and no `MCP_OAUTH_AUDIENCE` is needed. A job with no browser uses the SDK's `ClientCredentialsOAuthProvider` instead.
 
-A client that already holds a token puts it on the HTTP client the MCP client uses. `streamable_http_client` has no `auth=` argument; the header belongs on `httpx2.AsyncClient`:
+On the authorization server, register the `electiondata:read` scope, bind tokens to the resource URL or set `MCP_OAUTH_AUDIENCE`, and allow dynamic client registration (or pre-register the clients) for interactive MCP clients.
 
-```python
-import httpx2
-from mcp import Client
-from mcp.client.streamable_http import streamable_http_client
-
-async with httpx2.AsyncClient(
-    headers={"Authorization": "Bearer replace-with-a-bearer-token"},
-) as http_client:
-    transport = streamable_http_client(
-        "https://mcp.example.com/mcp",
-        http_client=http_client,
-    )
-    async with Client(transport, mode="legacy") as client:
-        tools = await client.list_tools()
-```
-
-A client that still has to run discovery uses the SDK's `OAuthClientProvider` (`mcp.client.auth`) on that same `httpx2.AsyncClient(auth=...)`. This server does not implement the authorization-server half of that flow (no `/authorize`, no `/token`). The issuer named above does.
-
-The issuer URL must be `https`, except loopback (`http://127.0.0.1`, `http://localhost`) which the SDK allows for tests. Setting `MCP_OAUTH_TOKEN` or `MCP_OAUTH_TOKENS` without an issuer, or an issuer without either, fails at startup.
+Every OAuth URL must be `https`, except `http://localhost`, `http://127.0.0.1` or `http://[::1]` for local testing. A partial configuration fails at startup: any `MCP_OAUTH_*` variable without an issuer, an issuer without a resource URL, both or neither of the JWKS and introspection URLs, or only one introspection credential. Error messages name the variable, never its value.
 
 ## Workers
 

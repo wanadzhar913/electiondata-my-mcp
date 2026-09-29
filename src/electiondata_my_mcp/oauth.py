@@ -1,193 +1,306 @@
 """Opt-in OAuth 2.1 resource server for Streamable HTTP.
 
 The process never issues tokens. When ``MCP_OAUTH_ISSUER_URL`` is set, ``/mcp``
-requires a bearer token from ``MCP_OAUTH_TOKEN`` (one token) or
-``MCP_OAUTH_TOKENS`` (a JSON table). ``GET /health`` stays open. Stdio and the
-in-memory test client never see the header, so they stay open too — same rule
-as the MCP SDK.
-
-``ponytail:`` the verifier is a static table, not JWT signature checks or
-RFC 7662 introspection. Swap ``StaticTokenVerifier`` for one of those when
-tokens are minted by the advertised issuer instead of pasted into the env.
+requires an access token minted by that authorization server. JWT access tokens
+are checked against its JWKS (``MCP_OAUTH_JWKS_URL``); opaque tokens are sent
+to its RFC 7662 introspection endpoint (``MCP_OAUTH_INTROSPECTION_URL``).
+``GET /health`` and the RFC 9728 metadata stay open. Stdio and the in-memory
+test client never see the header, so they stay open too — same rule as the MCP
+SDK.
 """
 
 from __future__ import annotations
 
-import json
+import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote_plus, urlsplit
 
-from mcp.server.auth.provider import AccessToken
-from mcp.server.auth.routes import validate_issuer_url
+import anyio
+import httpx2
+import jwt
+from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
-from pydantic import AnyHttpUrl, ValidationError
+from pydantic import ValidationError
+
+logger = logging.getLogger(__name__)
 
 ENV_ISSUER_URL = "MCP_OAUTH_ISSUER_URL"
 ENV_RESOURCE_URL = "MCP_OAUTH_RESOURCE_URL"
 ENV_REQUIRED_SCOPES = "MCP_OAUTH_REQUIRED_SCOPES"
-ENV_TOKEN = "MCP_OAUTH_TOKEN"
-ENV_TOKENS = "MCP_OAUTH_TOKENS"
+ENV_AUDIENCE = "MCP_OAUTH_AUDIENCE"
+ENV_JWKS_URL = "MCP_OAUTH_JWKS_URL"
+ENV_INTROSPECTION_URL = "MCP_OAUTH_INTROSPECTION_URL"
+ENV_INTROSPECTION_CLIENT_ID = "MCP_OAUTH_INTROSPECTION_CLIENT_ID"
+ENV_INTROSPECTION_CLIENT_SECRET = "MCP_OAUTH_INTROSPECTION_CLIENT_SECRET"
+_ENV_NAMES = (
+    ENV_ISSUER_URL,
+    ENV_RESOURCE_URL,
+    ENV_REQUIRED_SCOPES,
+    ENV_AUDIENCE,
+    ENV_JWKS_URL,
+    ENV_INTROSPECTION_URL,
+    ENV_INTROSPECTION_CLIENT_ID,
+    ENV_INTROSPECTION_CLIENT_SECRET,
+)
 
-DEFAULT_RESOURCE_URL = "http://127.0.0.1:8000/mcp"
 DEFAULT_REQUIRED_SCOPES = ("electiondata:read",)
-DEFAULT_TOKEN_CLIENT_ID = "static"
+HTTP_TIMEOUT = httpx2.Timeout(10.0, connect=5.0)
+JWKS_CACHE_SECONDS = 3600.0
+JWKS_RETRY_SECONDS = 30.0
+JWT_LEEWAY_SECONDS = 30
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
-class StaticTokenVerifier:
-    """Look a bearer token up in a fixed table. Unknown tokens return ``None``."""
+def _http_client() -> httpx2.AsyncClient:
+    # ponytail: one connection per JWKS fetch or introspection call. Keep a
+    # per-worker client if introspection latency shows up in tool timings.
+    return httpx2.AsyncClient(timeout=HTTP_TIMEOUT)
 
-    def __init__(self, tokens: dict[str, AccessToken]) -> None:
-        self._tokens = tokens
+
+def _same_url(a: str, b: str) -> bool:
+    return a.removesuffix("/") == b.removesuffix("/")
+
+
+def _access_token(
+    token: str,
+    claims: dict[str, Any],
+    *,
+    issuer: str,
+    audience: str,
+) -> AccessToken | None:
+    """Map JWT or RFC 7662 claims to an ``AccessToken``, or ``None`` if the token
+    was not issued by ``issuer`` for ``audience``."""
+    if claims.get("iss", issuer) != issuer:
+        return None
+    aud = claims.get("aud")
+    audiences = aud if isinstance(aud, list) else [aud]
+    resource = next((a for a in audiences if isinstance(a, str) and _same_url(a, audience)), None)
+    if resource is None:
+        return None
+    # RFC 9068 / 7662 ``scope`` is a space-separated string; Entra and Okta
+    # put a string or a list in ``scp``.
+    scope = claims.get("scope") or claims.get("scp")
+    if isinstance(scope, str):
+        scopes = scope.split()
+    elif isinstance(scope, list):
+        scopes = [s for s in scope if isinstance(s, str)]
+    else:
+        scopes = []
+    try:
+        return AccessToken(
+            token=token,
+            client_id=str(claims.get("client_id") or claims.get("azp") or "unknown"),
+            scopes=scopes,
+            expires_at=claims.get("exp"),
+            resource=resource,
+            subject=claims.get("sub"),
+            claims=claims,
+        )
+    except ValidationError:
+        return None
+
+
+class JWTTokenVerifier:
+    """Verify JWT access tokens against the authorization server's JWKS.
+
+    Only asymmetric keys from the JWKS are used, and a token must be signed with
+    the algorithm of the key its ``kid`` names, so ``alg: none`` and HMAC tokens
+    are refused. Keys are cached for ``JWKS_CACHE_SECONDS``; an unknown ``kid``
+    refetches at most once per ``JWKS_RETRY_SECONDS`` to pick up key rotation.
+    """
+
+    def __init__(self, jwks_url: str, *, issuer: str, audience: str) -> None:
+        self._jwks_url = jwks_url
+        self._issuer = issuer
+        self._audience = audience
+        self._keys: dict[str | None, jwt.PyJWK] = {}
+        self._refresh_at = 0.0
+        self._retry_at = 0.0
+        self._lock = anyio.Lock()
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        return self._tokens.get(token)
+        try:
+            key = await self._signing_key(jwt.get_unverified_header(token).get("kid"))
+            if key is None:
+                return None
+            claims = jwt.decode(
+                token,
+                key,
+                algorithms=[key.algorithm_name],
+                issuer=self._issuer,
+                leeway=JWT_LEEWAY_SECONDS,
+                options={"require": ["exp", "iss", "aud"], "verify_aud": False},
+            )
+        except jwt.PyJWTError as error:
+            logger.info("Rejected JWT access token: %s", error)
+            return None
+        return _access_token(token, claims, issuer=self._issuer, audience=self._audience)
+
+    def _needs_refresh(self, kid: str | None) -> bool:
+        now = time.monotonic()
+        return now >= self._refresh_at or (kid not in self._keys and now >= self._retry_at)
+
+    async def _signing_key(self, kid: str | None) -> jwt.PyJWK | None:
+        if self._needs_refresh(kid):
+            async with self._lock:
+                if self._needs_refresh(kid):
+                    await self._refresh()
+        return self._keys.get(kid)
+
+    async def _refresh(self) -> None:
+        now = time.monotonic()
+        self._refresh_at = self._retry_at = now + JWKS_RETRY_SECONDS
+        try:
+            async with _http_client() as client:
+                response = await client.get(self._jwks_url)
+            response.raise_for_status()
+            body = response.json()
+            jwks = jwt.PyJWKSet(body.get("keys") if isinstance(body, dict) else None)
+        except (httpx2.HTTPError, ValueError, jwt.PyJWTError) as error:
+            logger.warning("Could not fetch JWKS from %s: %s", self._jwks_url, error)
+            return
+        self._keys = {
+            key.key_id: key
+            for key in jwks.keys
+            if key.key_type != "oct" and key.public_key_use in (None, "sig")
+        }
+        self._refresh_at = now + JWKS_CACHE_SECONDS
+
+
+class IntrospectionTokenVerifier:
+    """Ask the authorization server whether a token is active (RFC 7662)."""
+
+    def __init__(
+        self,
+        introspection_url: str,
+        *,
+        issuer: str,
+        audience: str,
+        client_auth: tuple[str, str] | None,
+    ) -> None:
+        self._url = introspection_url
+        self._issuer = issuer
+        self._audience = audience
+        # RFC 6749 §2.3.1: form-encode the credentials before HTTP Basic.
+        self._auth = (
+            (quote_plus(client_auth[0]), quote_plus(client_auth[1])) if client_auth else None
+        )
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        try:
+            async with _http_client() as client:
+                response = await client.post(
+                    self._url,
+                    data={"token": token, "token_type_hint": "access_token"},
+                    auth=self._auth,
+                )
+            response.raise_for_status()
+            claims = response.json()
+        except (httpx2.HTTPError, ValueError) as error:
+            logger.warning("Token introspection at %s failed: %s", self._url, error)
+            return None
+        if not isinstance(claims, dict) or claims.get("active") is not True:
+            return None
+        return _access_token(token, claims, issuer=self._issuer, audience=self._audience)
 
 
 @dataclass(frozen=True)
 class OAuthConfig:
     auth: AuthSettings
-    verifier: StaticTokenVerifier
+    verifier: TokenVerifier
 
 
 def load_oauth_config() -> OAuthConfig | None:
     """Read OAuth settings from the environment.
 
     ``None`` means HTTP stays unauthenticated. A half-configured environment
-    (issuer without tokens, or tokens without an issuer) raises ``ValueError``
-    so the process does not boot looking protected when it is not, or the
-    reverse.
+    raises ``ValueError`` so the process does not boot looking protected when
+    it is not. Error messages name variables, never their values.
     """
-    issuer_raw = os.environ.get(ENV_ISSUER_URL, "").strip()
-    token_raw = os.environ.get(ENV_TOKEN, "").strip()
-    tokens_raw = os.environ.get(ENV_TOKENS)
-    tokens_set = tokens_raw is not None and bool(tokens_raw.strip())
-    if not issuer_raw:
-        if token_raw or tokens_set:
-            which = ENV_TOKEN if token_raw else ENV_TOKENS
-            raise ValueError(f"{which} is set but {ENV_ISSUER_URL} is not")
+    env = {name: os.environ.get(name, "").strip() for name in _ENV_NAMES}
+    issuer = env[ENV_ISSUER_URL]
+    if not issuer:
+        stray = next((name for name in _ENV_NAMES if env[name]), None)
+        if stray:
+            raise ValueError(f"{stray} is set but {ENV_ISSUER_URL} is not")
         return None
 
-    resource_raw = os.environ.get(ENV_RESOURCE_URL, "").strip() or DEFAULT_RESOURCE_URL
-    scopes = _parse_scopes(os.environ.get(ENV_REQUIRED_SCOPES))
-    try:
-        issuer_url = AnyHttpUrl(issuer_raw)
-        resource_url = AnyHttpUrl(resource_raw)
-    except ValidationError as error:
-        raise ValueError(f"Invalid OAuth URL: {error}") from error
-    validate_issuer_url(issuer_url)
+    resource = env[ENV_RESOURCE_URL]
+    if not resource:
+        raise ValueError(f"{ENV_RESOURCE_URL} is required when {ENV_ISSUER_URL} is set")
+    jwks_url = env[ENV_JWKS_URL]
+    introspection_url = env[ENV_INTROSPECTION_URL]
+    if bool(jwks_url) == bool(introspection_url):
+        raise ValueError(f"Set exactly one of {ENV_JWKS_URL} or {ENV_INTROSPECTION_URL}")
+    for name in (ENV_ISSUER_URL, ENV_RESOURCE_URL, ENV_JWKS_URL, ENV_INTROSPECTION_URL):
+        if env[name]:
+            _require_https(name, env[name])
 
-    tokens = _collect_tokens(
-        token_raw,
-        tokens_raw if tokens_set else None,
-        resource=str(resource_url),
-        default_scopes=scopes,
+    audience = env[ENV_AUDIENCE] or resource
+    verifier: TokenVerifier
+    if jwks_url:
+        verifier = JWTTokenVerifier(jwks_url, issuer=issuer, audience=audience)
+    else:
+        client_id = env[ENV_INTROSPECTION_CLIENT_ID]
+        client_secret = env[ENV_INTROSPECTION_CLIENT_SECRET]
+        if bool(client_id) != bool(client_secret):
+            raise ValueError(
+                f"Set both {ENV_INTROSPECTION_CLIENT_ID} and {ENV_INTROSPECTION_CLIENT_SECRET}, "
+                "or neither"
+            )
+        verifier = IntrospectionTokenVerifier(
+            introspection_url,
+            issuer=issuer,
+            audience=audience,
+            client_auth=(client_id, client_secret) if client_id else None,
+        )
+
+    auth = AuthSettings.model_validate(
+        {
+            # Strings, not AnyHttpUrl: AuthSettings keeps a path-less issuer
+            # without a trailing slash, and clients compare it to the
+            # authorization server's metadata ``issuer`` exactly.
+            "issuer_url": issuer,
+            "resource_server_url": resource,
+            "required_scopes": _parse_scopes(env[ENV_REQUIRED_SCOPES]),
+            # A custom audience (Auth0 API identifier, Entra app ID) is checked
+            # by the verifier instead of the SDK's resource match.
+            "validate_token_resource": _same_url(audience, resource),
+        }
     )
-    return OAuthConfig(
-        auth=AuthSettings(
-            issuer_url=issuer_url,
-            resource_server_url=resource_url,
-            required_scopes=scopes,
-        ),
-        verifier=StaticTokenVerifier(tokens),
-    )
+    return OAuthConfig(auth=auth, verifier=verifier)
 
 
 def apply_oauth_config(server: MCPServer[Any]) -> OAuthConfig | None:
     """Point ``server`` at the current process environment.
 
     ``streamable_http_app()`` reads ``settings.auth`` and ``_token_verifier``
-    when the ASGI app is built. Each uvicorn worker imports the app in its own
-    process, so this is the whole configuration step.
+    when the ASGI app is built. The SDK has no public setter for either after
+    construction, and ``server`` is the module-level instance the tools are
+    registered on. Each uvicorn worker imports the app in its own process, so
+    this is the whole configuration step.
     """
     config = load_oauth_config()
-    if config is None:
-        server.settings.auth = None
-        server._token_verifier = None
-        return None
-    server.settings.auth = config.auth
-    server._token_verifier = config.verifier
+    server.settings.auth = config.auth if config else None
+    server._token_verifier = config.verifier if config else None
     return config
 
 
-def _parse_scopes(raw: str | None) -> list[str]:
-    if raw is None or not raw.strip():
+def _require_https(name: str, raw: str) -> None:
+    url = urlsplit(raw)
+    loopback = url.scheme == "http" and url.hostname in _LOOPBACK_HOSTS
+    if not url.hostname or not (url.scheme == "https" or loopback):
+        raise ValueError(f"{name} must be an https URL (http only for localhost)")
+
+
+def _parse_scopes(raw: str) -> list[str]:
+    if not raw:
         return list(DEFAULT_REQUIRED_SCOPES)
     scopes = [part.strip() for part in raw.split(",") if part.strip()]
     if not scopes:
         raise ValueError(f"{ENV_REQUIRED_SCOPES} must list at least one scope")
     return scopes
-
-
-def _collect_tokens(
-    token_raw: str,
-    tokens_raw: str | None,
-    *,
-    resource: str,
-    default_scopes: list[str],
-) -> dict[str, AccessToken]:
-    """Accept ``MCP_OAUTH_TOKEN``, ``MCP_OAUTH_TOKENS``, or both.
-
-    The JSON table wins when the same bearer string is listed in both, so a
-    table entry can carry its own ``client_id`` and scopes.
-    """
-    tokens: dict[str, AccessToken] = {}
-    if tokens_raw:
-        tokens = _parse_tokens(tokens_raw, resource=resource, default_scopes=default_scopes)
-    if token_raw and token_raw not in tokens:
-        tokens[token_raw] = AccessToken(
-            token=token_raw,
-            client_id=DEFAULT_TOKEN_CLIENT_ID,
-            scopes=list(default_scopes),
-            resource=resource,
-        )
-    if not tokens:
-        raise ValueError(f"{ENV_ISSUER_URL} is set but {ENV_TOKEN} and {ENV_TOKENS} are empty")
-    return tokens
-
-
-def _parse_tokens(
-    raw: str,
-    *,
-    resource: str,
-    default_scopes: list[str],
-) -> dict[str, AccessToken]:
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as error:
-        raise ValueError(f"{ENV_TOKENS} must be a JSON object") from error
-    if not isinstance(parsed, dict) or not parsed:
-        raise ValueError(f"{ENV_TOKENS} must be a non-empty JSON object")
-
-    tokens: dict[str, AccessToken] = {}
-    for token, entry in parsed.items():
-        if not isinstance(token, str) or not token:
-            raise ValueError(f"{ENV_TOKENS} keys must be non-empty token strings")
-        if not isinstance(entry, dict):
-            raise ValueError(f"{ENV_TOKENS}[{token!r}] must be an object with client_id")
-        client_id = entry.get("client_id")
-        if not isinstance(client_id, str) or not client_id:
-            raise ValueError(f"{ENV_TOKENS}[{token!r}] needs a client_id string")
-        scopes = _token_scopes(token, entry.get("scopes", default_scopes))
-        subject = entry.get("subject")
-        if subject is not None and not isinstance(subject, str):
-            raise ValueError(f"{ENV_TOKENS}[{token!r}] subject must be a string")
-        tokens[token] = AccessToken(
-            token=token,
-            client_id=client_id,
-            scopes=scopes,
-            resource=resource,
-            subject=subject,
-        )
-    return tokens
-
-
-def _token_scopes(token: str, scopes: object) -> list[str]:
-    if (
-        not isinstance(scopes, list)
-        or not scopes
-        or not all(isinstance(scope, str) and scope for scope in scopes)
-    ):
-        raise ValueError(f"{ENV_TOKENS}[{token!r}] scopes must be a non-empty list of strings")
-    return list(scopes)
