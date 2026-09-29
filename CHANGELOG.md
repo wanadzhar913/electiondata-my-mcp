@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add a production Dockerfile for Streamable HTTP (`electiondata_my_mcp.http_app:app`, four uvicorn workers) and document `docker build` / `docker run` in `PRODUCTION.md`.
+- Add a production Dockerfile for Streamable HTTP (`electiondata_my_mcp.http_app:app`, four uvicorn workers by default via `WEB_CONCURRENCY`, non-root UID 10001, `/health` `HEALTHCHECK`, Python and uv pinned to the same versions in both stages) and document `docker build` / `docker run` in `PRODUCTION.md`.
 
 ## 0.2.0 — 2026-09-19
 

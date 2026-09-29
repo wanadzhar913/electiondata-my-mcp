@@ -120,8 +120,7 @@ Keep the existing contract unless you are explicitly changing it, and cover the 
 1. Fork the repo and create a branch from `main` (`git checkout -b fix/short-description`).
 2. Make a focused change. Match the surrounding style; `ruff` is the linter (`line-length = 100`, Python 3.11).
 3. Add or update tests. Prefer the existing mocks in `tests/conftest.py` over live lake calls. Every test must be marked `unit` or `integration`. Live stdio/lake coverage lives in `tests/test_live_lake.py` and `tests/test_live_mcp_client.py` and stays behind `pytest -m integration`.
-4. For user-facing changes, add a note under the next version in `CHANGELOG.md`. Leave the version in `pyproject.toml` and `__init__.py` alone unless a maintainer asks you to bump it.
-5. Open a pull request against `main`. Describe the problem, the approach, and how you tested it.
+4. Open a pull request against `main`. Describe the problem, the approach, and how you tested it.
 
 Please do not commit `.env`, credentials, or local DuckDB cache files.
 
