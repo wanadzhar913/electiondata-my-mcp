@@ -1,3 +1,5 @@
 """ElectionData.MY MCP server: query the public Malaysian election data lake with DuckDB SQL."""
 
-__version__ = "0.2.0"
+from importlib.metadata import version
+
+__version__ = version("electiondata-my-mcp")

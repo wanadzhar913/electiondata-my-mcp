@@ -2,8 +2,6 @@
 
 Stdio is the default transport and is what desktop clients (`uvx electiondata-my-mcp`) speak. This page is the HTTP deploy path: a Starlette app from `mcp.streamable_http_app()`, CORS, DNS-rebinding protection, a `/health` route, and uvicorn workers.
 
-`mcp.run("streamable-http")` is not used here. That helper starts a single in-process uvicorn and has no knobs for workers, CORS, or a health check. The exported ASGI app is what you put behind a process manager.
-
 ## Run
 
 After `pip install electiondata-my-mcp` (or `uvx`):
@@ -27,7 +25,7 @@ uvicorn electiondata_my_mcp.http_app:app --host 0.0.0.0 --port 8000 --workers 4
 
 `--host`, `--port`, `--workers`, `--allowed-host`, `--allowed-origin`, and `--disable-dns-rebinding-protection` are HTTP-only. Passing them with the default stdio transport is an error, so a desktop config cannot accidentally open a port.
 
-POSTs to `/mcp` are Streamable HTTP: send `Accept: application/json, text/event-stream`. Replies are SSE (`event: message` then `data: {jsonrpc…}`). There is no `Mcp-Session-Id` (stateless). Hit `127.0.0.1` or `localhost`; another `Host` is `421` until you allowlist it.
+POSTs to `/mcp` are Streamable HTTP: send `Accept: application/json, text/event-stream`. Replies are SSE (`event: message` then `data: {jsonrpc…}`). There is no `Mcp-Session-Id` (stateless). Hit `127.0.0.1` or `localhost`; another `Host` is [`421`](https://py.sdk.modelcontextprotocol.io/troubleshooting/?h=421#421-misdirected-request-invalid-host-header) until you allowlist it.
 
 ```bash
 curl -sS http://127.0.0.1:8000/health
@@ -80,7 +78,7 @@ claude mcp add --transport http electiondata-my http://127.0.0.1:8000/mcp
 
 ## Host and Origin allowlists
 
-Out of the box the app only accepts requests whose `Host` is localhost (`127.0.0.1`, `localhost`, `[::1]`, any port). Behind a real hostname every request is `421 Misdirected Request` until you allowlist what you actually serve.
+Out of the box, the app only accepts requests whose `Host` is localhost (`127.0.0.1`, `localhost`, `[::1]`, any port). Behind a real hostname every request is [`421 Misdirected Request`](https://py.sdk.modelcontextprotocol.io/troubleshooting/?h=421#421-misdirected-request-invalid-host-header) until you allowlist what you actually serve.
 
 CLI (repeatable flags; copied into the environment before uvicorn forks workers):
 
@@ -112,10 +110,7 @@ uvicorn electiondata_my_mcp.http_app:app --proxy-headers --forwarded-allow-ips='
 
 ## Workers
 
-`--workers` maps to `uvicorn --workers`. The HTTP app explicitly uses the MCP SDK's
-stateless mode, so any worker can serve any request. This server has no elicitation /
-`requestState` tools, so you do not need sticky sessions or a shared
-`RequestStateSecurity` key.
+`--workers` maps to `uvicorn --workers`. The HTTP app explicitly uses the MCP SDK's stateless mode, so any worker can serve any request. This server has no elicitation / `requestState` tools, so you do not need sticky sessions or a shared `RequestStateSecurity` key.
 
 Each worker process has its own DuckDB database (`connect()` once, lazily on first query) and a bounded cursor pool. Concurrent tool calls check out cursors; when every cursor is busy, a caller waits up to `MCP_DUCKDB_POOL_TIMEOUT` seconds (default 10) and then gets a "retry shortly" tool error. Pool size times `--workers` is the cap on in-flight lake queries for the machine.
 
@@ -124,9 +119,38 @@ export MCP_DUCKDB_POOL_SIZE=4
 export MCP_DUCKDB_POOL_TIMEOUT=10
 ```
 
-## What stays on stdio
+## Docker
 
-`electiondata-my-mcp` with no flags, `uvx electiondata-my-mcp==…`, and the Claude Desktop / Claude Code / Cursor **command** blocks in the [README](README.md#usage) still start `mcp.run()` over stdio. HTTP is opt-in.
+The image runs that same app: `uvicorn electiondata_my_mcp.http_app:app` on `0.0.0.0:8000` with four workers by default. Dev dependencies are not installed (`uv sync --frozen --no-dev`).
+
+The worker count is uvicorn's `WEB_CONCURRENCY` (image default `4`), so change it at run time without rebuilding:
+
+```bash
+docker build --build-arg VERSION="$(uv version --short)" -t electiondata-my-mcp .
+docker run --rm -p 8000:8000 -e WEB_CONCURRENCY=2 electiondata-my-mcp
+
+# verify it works
+# add `-H 'Mcp-Protocol-Version: 2025-11-25'` if your client does not support the latest version
+curl -sS http://127.0.0.1:8000/mcp \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_datasets","arguments":{}}}'
+```
+
+The Dockerfile uses BuildKit cache mounts (`RUN --mount=type=cache`). Docker Buildx does that by default. If `docker build` reports that `--mount` requires BuildKit, prefix the build with `DOCKER_BUILDKIT=1`.
+
+`GET /health` and `POST /mcp` listen on port 8000. `/mcp` accepts a request whose `Host` is `localhost` or `127.0.0.1` (any port), which is what a client on the host sends through `docker run -p 8000:8000`. Another hostname gets [`421`](https://py.sdk.modelcontextprotocol.io/troubleshooting/?h=421#421-misdirected-request-invalid-host-header) from `/mcp` until you allowlist it, same as a non-container deploy:
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e MCP_ALLOWED_HOSTS='mcp.example.com,mcp.example.com:*' \
+  -e MCP_ALLOWED_ORIGINS='https://app.example.com' \
+  electiondata-my-mcp
+```
+
+The image has a Docker `HEALTHCHECK` that requests `GET /health` on `127.0.0.1:8000` from inside the container. The Host allowlist applies only to `/mcp`, so the check keeps passing after you set `MCP_ALLOWED_HOSTS`. Kubernetes ignores `HEALTHCHECK`; point its probes at `/health` instead.
+
+Pool size is still per worker. The image's default four workers and the default `MCP_DUCKDB_POOL_SIZE=4` cap the machine at about sixteen in-flight lake queries. Override the pool the same way as the allowlists (`-e MCP_DUCKDB_POOL_SIZE=4`).
 
 ## Design
 
@@ -167,7 +191,7 @@ flowchart TB
     DB2 --> Lake
 ```
 
-CORS and DNS-rebinding protection sit on that same app. Methods and `Mcp-*` headers are the protocol, not a deployment choice, so they are fixed in code. `Host` and `Origin` allowlists are the deployment choice: localhost by default, because a public hostname that is not allowlisted is `421`. Behind a proxy that already checks `Host`, turning DNS-rebinding protection off is the honest setting. If TLS ends at that proxy, uvicorn has to trust `X-Forwarded-*` or it will redirect `/mcp` to `http://`.
+CORS and DNS-rebinding protection sit on that same app. Methods and `Mcp-*` headers are the protocol, not a deployment choice, so they are fixed in code. `Host` and `Origin` allowlists are the deployment choice: localhost by default, because a public hostname that is not allowlisted is [`421`](https://py.sdk.modelcontextprotocol.io/troubleshooting/?h=421#421-misdirected-request-invalid-host-header). Behind a proxy that already checks `Host`, turning DNS-rebinding protection off is the honest setting. If TLS ends at that proxy, uvicorn has to trust `X-Forwarded-*` or it will redirect `/mcp` to `http://`.
 
 `GET /health` is unauthenticated on purpose. A probe should not need a session or a token to learn that the process is up.
 
