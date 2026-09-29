@@ -224,6 +224,25 @@ async def test_jwks_endpoint_failure_rejects_the_token(
     assert await verifier.verify_token(auth_server.mint()) is None
 
 
+def test_outbound_calls_have_a_timeout() -> None:
+    assert oauth._http_client().timeout == oauth.HTTP_TIMEOUT
+
+
+@pytest.mark.parametrize(
+    ("extra", "scopes"),
+    [({}, []), ({"scope": 7}, []), ({"sub": 7}, None), ({"exp": "soon"}, None)],
+    ids=["no scope", "non-string scope", "non-string sub", "non-numeric exp"],
+)
+def test_odd_claims_map_to_no_scopes_or_no_token(
+    extra: dict[str, object], scopes: list[str] | None
+) -> None:
+    claims = {"iss": ISSUER, "aud": RESOURCE, **extra}
+
+    access = oauth._access_token("t", claims, issuer=ISSUER, audience=RESOURCE)
+
+    assert (access.scopes if access else None) == scopes
+
+
 async def test_introspection_accepts_active_token_with_client_auth(
     auth_server: FakeAuthorizationServer,
 ) -> None:
