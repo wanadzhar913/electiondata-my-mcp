@@ -28,7 +28,7 @@ Usually out of scope:
 
 ## Development setup
 
-Requires [uv](https://docs.astral.sh/uv/) and Python 3.11+.
+Requires [uv](https://docs.astral.sh/uv/) and Python 3.11–3.14.
 
 1. Clone the repository
 
@@ -59,7 +59,7 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.11+.
   uv run pytest -m integration --no-cov
   ```
 
-  The unit suite mocks DuckDB and httpx and does not use the network. Coverage must stay at **80%** (`--cov-fail-under=80` in `pyproject.toml`). CI runs it on Ubuntu, macOS, and Windows against Python 3.11, 3.12, and 3.13.
+  The unit suite mocks DuckDB and httpx and does not use the network. Coverage must stay at **80%** (`--cov-fail-under=80` in `pyproject.toml`). CI runs it on Ubuntu, macOS, and Windows against Python 3.11, 3.12, 3.13, and 3.14.
 
   `--no-cov` is required for the integration run: a handful of live tests will not meet the 80% gate. These tests spawn `python -m electiondata_my_mcp` and query `headline_stats` over HTTP; they are not the ElectionData.MY REST API.
 

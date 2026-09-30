@@ -39,7 +39,7 @@ An MCP server that lets an LLM answer questions about Malaysian elections by wri
 
 ## Installation
 
-Requires [uv](https://docs.astral.sh/uv/) (which provides `uvx`) and Python 3.11+.
+Requires [uv](https://docs.astral.sh/uv/) (which provides `uvx`) and Python 3.11–3.14.
 
 The server is on [PyPI](https://pypi.org/project/electiondata-my-mcp/). You do not need to clone this repository to use it.
 
