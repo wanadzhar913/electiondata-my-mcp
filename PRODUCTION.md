@@ -155,7 +155,7 @@ WWW-Authenticate: Bearer error="invalid_token", error_description="Authenticatio
 
 Your authorization server must issue JWT access tokens (not opaque tokens), signed with an asymmetric key published at a JWKS URL. Tokens must have `aud` containing `MCP_OAUTH_RESOURCE_URL` (or set `MCP_OAUTH_AUDIENCE`) and the required scope.
 
-- **Auth0**: Configure an API with the resource URL as its identifier, signed with RS256, and add the `electiondata:read` permission. Enable the Resource Parameter Compatibility Profile for RFC 8707 `resource` parameter support. The issuer is `https://<tenant>/` (with the trailing `/`) and the JWKS URL is `https://<tenant>/.well-known/jwks.json`.
+- **Auth0**: Step-by-step tenant setup, env vars, and CI secrets are in [docs/auth0.md](docs/auth0.md). In short: API identifier = `MCP_OAUTH_RESOURCE_URL`, RS256, scope `electiondata:read`; enable the Resource Parameter Compatibility Profile for RFC 8707; issuer `https://<tenant>/` (trailing `/`); JWKS `https://<tenant>/.well-known/jwks.json`.
 - **Keycloak**: Add an Audience mapper to include the resource URL in `aud`.
 
 Providers issuing opaque access tokens are not supported yet.
