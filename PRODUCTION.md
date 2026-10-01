@@ -128,21 +128,19 @@ electiondata-my-mcp --transport streamable-http --host 0.0.0.0 \
 | --- | --- |
 | `MCP_OAUTH_ISSUER_URL` | The authorization server's `issuer`, character for character (Auth0's ends in `/`). Clients compare it to the `issuer` in that server's metadata and refuse a mismatch. |
 | `MCP_OAUTH_RESOURCE_URL` | Required. The public URL clients connect to, including `/mcp`. It is the RFC 8707 resource a token must be issued for. |
-| `MCP_OAUTH_JWKS_URL` | Verify JWT access tokens locally against this JWKS. |
-| `MCP_OAUTH_INTROSPECTION_URL` | Or: ask this RFC 7662 endpoint about each token (opaque tokens). Set exactly one of the two. |
-| `MCP_OAUTH_INTROSPECTION_CLIENT_ID` / `_SECRET` | This server's credentials for the introspection endpoint (HTTP Basic). Both or neither. |
+| `MCP_OAUTH_JWKS_URL` | Required. Verify JWT access tokens locally against this JWKS. |
 | `MCP_OAUTH_AUDIENCE` | Optional. The `aud` your authorization server puts in tokens when it is not the resource URL (an Auth0 API identifier, an Entra application ID URI). Defaults to `MCP_OAUTH_RESOURCE_URL`. |
 | `MCP_OAUTH_REQUIRED_SCOPES` | Comma-separated. Every token must carry all of them. Default `electiondata:read`. |
 
 A token is accepted only if it:
 
-- is signed by a key in the JWKS (asymmetric keys only, with the algorithm that key names), or is `active` according to introspection.
-- has `iss` equal to `MCP_OAUTH_ISSUER_URL` (introspection may omit `iss`).
+- is signed by a key in the JWKS (asymmetric keys only, with the algorithm that key names).
+- has `iss` equal to `MCP_OAUTH_ISSUER_URL`.
 - has `aud` containing `MCP_OAUTH_AUDIENCE`, which defaults to the resource URL.
-- is not expired and not before `nbf` (30 s leeway on JWTs).
+- is not expired and not before `nbf` (30 s leeway applies to `nbf` and `iat`, not `exp`).
 - carries every required scope in `scope` or `scp`.
 
-A missing or rejected token is `401`, and a missing scope is `403`. A JWKS or introspection endpoint that is down, slow (10 s timeout) or returns an error rejects the token; there is no fallback. JWKS keys are cached for an hour, and a token with an unknown `kid` triggers a refetch at most every 30 s, which picks up key rotation.
+A missing or rejected token is `401`, and a missing scope is `403`. A JWKS endpoint that is down, slow (10 s timeout) or returns an error rejects the token; there is no fallback. JWKS keys are cached for an hour; a JWKS outage only affects the first fetch or an unknown `kid` (cached keys keep working). A token with an unknown `kid` triggers a refetch at most every 30 s, which picks up key rotation.
 
 `POST /mcp` without a token:
 
@@ -153,9 +151,18 @@ WWW-Authenticate: Bearer error="invalid_token", error_description="Authenticatio
 
 `GET` that `resource_metadata` URL and the body is RFC 9728 Protected Resource Metadata: `resource`, `authorization_servers` (the issuer) and `scopes_supported`. A client that has never seen this server starts there: 401, then the metadata, then the authorization server, then a token, then a retry with `Authorization: Bearer`. MCP clients that support OAuth (and the SDK's [`OAuthClientProvider`](https://py.sdk.modelcontextprotocol.io/client/oauth-clients/)) do all of that themselves. They send the resource URL as the RFC 8707 `resource` parameter, so an authorization server that honours it puts the resource URL in `aud` and no `MCP_OAUTH_AUDIENCE` is needed. A job with no browser uses the SDK's `ClientCredentialsOAuthProvider` instead.
 
-On the authorization server, register the `electiondata:read` scope, bind tokens to the resource URL or set `MCP_OAUTH_AUDIENCE`, and allow dynamic client registration (or pre-register the clients) for interactive MCP clients.
+### Provider Setup
 
-Every OAuth URL must be `https`, except `http://localhost`, `http://127.0.0.1` or `http://[::1]` for local testing. A partial configuration fails at startup: any `MCP_OAUTH_*` variable without an issuer, an issuer without a resource URL, both or neither of the JWKS and introspection URLs, or only one introspection credential. Error messages name the variable, never its value.
+Your authorization server must issue JWT access tokens (not opaque tokens), signed with an asymmetric key published at a JWKS URL. Tokens must have `aud` containing `MCP_OAUTH_RESOURCE_URL` (or set `MCP_OAUTH_AUDIENCE`) and the required scope.
+
+- **Auth0**: Configure an API with the resource URL as its identifier. Enable the Resource Parameter Compatibility Profile for RFC 8707 `resource` parameter support.
+- **Keycloak**: Add an Audience mapper to include the resource URL in `aud`.
+
+Providers issuing opaque access tokens are not supported yet.
+
+Register the `electiondata:read` scope and allow dynamic client registration (or pre-register the clients) for interactive MCP clients.
+
+Every OAuth URL must be `https`, except `http://localhost`, `http://127.0.0.1` or `http://[::1]` for local testing. A partial configuration fails at startup: any `MCP_OAUTH_*` variable without an issuer, an issuer without a resource URL, or a missing JWKS URL. Error messages name the variable, never its value. When deploying to Fly.io or similar platforms, set OAuth variables with `fly secrets set` (never in `fly.toml`).
 
 ## Workers
 

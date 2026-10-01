@@ -30,7 +30,7 @@ CORS_ALLOW_HEADERS = [
     "Mcp-Protocol-Version",
     "Mcp-Session-Id",
 ]
-CORS_EXPOSE_HEADERS = ["Mcp-Session-Id"]
+CORS_EXPOSE_HEADERS = ["Mcp-Session-Id", "WWW-Authenticate"]
 
 
 def build_asgi_app() -> Starlette:

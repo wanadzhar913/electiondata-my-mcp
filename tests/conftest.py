@@ -61,7 +61,7 @@ def oauth_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[pytest.MonkeyPatch]:
 
 @pytest.fixture
 def auth_server(oauth_env: pytest.MonkeyPatch) -> FakeAuthorizationServer:
-    """A fake authorization server that the resource server's JWKS and introspection calls reach."""
+    """A fake authorization server that the resource server's JWKS calls reach."""
     server = FakeAuthorizationServer()
     oauth_env.setattr(
         oauth,

@@ -119,7 +119,7 @@ Point a client at the checkout instead of PyPI — the same block works in Claud
 | --- | --- |
 | `src/electiondata_my_mcp/server.py` | MCP tools, resource, prompt, stdio CLI, `/health`. |
 | `src/electiondata_my_mcp/http_app.py` | Streamable HTTP Starlette app (CORS, transport security). |
-| `src/electiondata_my_mcp/oauth.py` | Optional OAuth 2.1 resource server for `/mcp`: JWT (JWKS) or RFC 7662 introspection token verifiers (off unless configured). |
+| `src/electiondata_my_mcp/oauth.py` | Optional OAuth 2.1 resource server for `/mcp`: JWT access tokens verified against JWKS (off unless configured). |
 | `src/electiondata_my_mcp/settings.py` | HTTP Host/Origin allowlists from the environment. |
 | `src/electiondata_my_mcp/duckdb_lake.py` | Table → Parquet URL map, `connect()`, CLI. |
 | `src/electiondata_my_mcp/duckdb_pool.py` | Per-process DuckDB cursor pool used by `execute_query` / `describe_dataset`. |

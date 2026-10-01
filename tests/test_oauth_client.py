@@ -66,13 +66,12 @@ class InMemoryTokenStorage:
         self.client_info = client_info
 
 
-@pytest.fixture(params=["jwks", "introspection"])
+@pytest.fixture
 def oauth_app(
-    request: pytest.FixtureRequest,
     oauth_env: pytest.MonkeyPatch,
     auth_server: FakeAuthorizationServer,
 ) -> Starlette:
-    for name, value in resource_server_env(request.param).items():
+    for name, value in resource_server_env().items():
         oauth_env.setenv(name, value)
     return build_asgi_app()
 

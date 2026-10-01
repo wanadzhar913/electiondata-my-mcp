@@ -1,10 +1,10 @@
 """In-process OAuth 2.1 authorization server for tests.
 
 Discovery, dynamic client registration, ``/authorize`` (PKCE) and ``/token``
-are the MCP SDK's own authorization-server routes. ``/jwks`` and RFC 7662
-``/introspect`` are the two endpoints a resource server calls. ``/authorize``
-approves every request as ``alice`` and the token is a JWT whose ``aud`` is the
-RFC 8707 ``resource`` the client asked for.
+are the MCP SDK's own authorization-server routes. ``/jwks`` is the endpoint
+a resource server calls to fetch public keys. ``/authorize`` approves every
+request as ``alice`` and the token is a JWT whose ``aud`` is the RFC 8707
+``resource`` the client asked for.
 """
 
 from __future__ import annotations
@@ -28,9 +28,6 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from electiondata_my_mcp.oauth import (
-    ENV_INTROSPECTION_CLIENT_ID,
-    ENV_INTROSPECTION_CLIENT_SECRET,
-    ENV_INTROSPECTION_URL,
     ENV_ISSUER_URL,
     ENV_JWKS_URL,
     ENV_RESOURCE_URL,
@@ -40,24 +37,15 @@ ISSUER = "https://auth.example.com"
 RESOURCE = "http://127.0.0.1:8000/mcp"
 SCOPE = "electiondata:read"
 JWKS_URL = f"{ISSUER}/jwks"
-INTROSPECTION_URL = f"{ISSUER}/introspect"
 MCP_ORIGIN = "http://127.0.0.1:8000"
 
 SIGNING_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 OTHER_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
 
-def resource_server_env(mode: str) -> dict[str, str]:
-    """Resource-server environment for ``mode`` ``"jwks"`` or ``"introspection"``."""
-    env = {ENV_ISSUER_URL: ISSUER, ENV_RESOURCE_URL: RESOURCE}
-    if mode == "jwks":
-        return {**env, ENV_JWKS_URL: JWKS_URL}
-    return {
-        **env,
-        ENV_INTROSPECTION_URL: INTROSPECTION_URL,
-        ENV_INTROSPECTION_CLIENT_ID: "electiondata-mcp",
-        ENV_INTROSPECTION_CLIENT_SECRET: "rs-secret",
-    }
+def resource_server_env() -> dict[str, str]:
+    """Resource-server environment for JWKS mode."""
+    return {ENV_ISSUER_URL: ISSUER, ENV_RESOURCE_URL: RESOURCE, ENV_JWKS_URL: JWKS_URL}
 
 
 class FakeAuthorizationServer:
@@ -66,7 +54,6 @@ class FakeAuthorizationServer:
         self.kid = "key-1"
         self.extra_jwks: list[dict[str, Any]] = []
         self.jwks_fetches = 0
-        self.introspection_auth: list[str | None] = []
         self.clients: dict[str, OAuthClientInformationFull] = {}
         self.codes: dict[str, AuthorizationCode] = {}
         routes = create_auth_routes(
@@ -84,7 +71,6 @@ class FakeAuthorizationServer:
             routes=[
                 *routes,
                 Route("/jwks", self._jwks),
-                Route("/introspect", self._introspect, methods=["POST"]),
             ]
         )
 
@@ -131,20 +117,6 @@ class FakeAuthorizationServer:
         jwk = json.loads(RSAAlgorithm.to_jwk(self.key.public_key()))
         jwk.update(kid=self.kid, use="sig", alg="RS256")
         return JSONResponse({"keys": [jwk, *self.extra_jwks]})
-
-    async def _introspect(self, request: Request) -> JSONResponse:
-        self.introspection_auth.append(request.headers.get("authorization"))
-        form = await request.form()
-        try:
-            claims = jwt.decode(
-                str(form.get("token")),
-                self.key.public_key(),
-                algorithms=["RS256"],
-                options={"verify_aud": False},
-            )
-        except jwt.PyJWTError:
-            return JSONResponse({"active": False})
-        return JSONResponse({"active": True, **claims})
 
     # OAuthAuthorizationServerProvider, as far as create_auth_routes uses it.
 

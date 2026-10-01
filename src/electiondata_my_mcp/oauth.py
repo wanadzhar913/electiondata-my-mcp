@@ -2,11 +2,9 @@
 
 The process never issues tokens. When ``MCP_OAUTH_ISSUER_URL`` is set, ``/mcp``
 requires an access token minted by that authorization server. JWT access tokens
-are checked against its JWKS (``MCP_OAUTH_JWKS_URL``); opaque tokens are sent
-to its RFC 7662 introspection endpoint (``MCP_OAUTH_INTROSPECTION_URL``).
-``GET /health`` and the RFC 9728 metadata stay open. Stdio and the in-memory
-test client never see the header, so they stay open too — same rule as the MCP
-SDK.
+are checked against its JWKS (``MCP_OAUTH_JWKS_URL``). ``GET /health`` and the
+RFC 9728 metadata stay open. Stdio and the in-memory test client never see the
+header, so they stay open too — same rule as the MCP SDK.
 """
 
 from __future__ import annotations
@@ -16,7 +14,7 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import quote_plus, urlsplit
+from urllib.parse import urlsplit
 
 import anyio
 import httpx2
@@ -33,18 +31,12 @@ ENV_RESOURCE_URL = "MCP_OAUTH_RESOURCE_URL"
 ENV_REQUIRED_SCOPES = "MCP_OAUTH_REQUIRED_SCOPES"
 ENV_AUDIENCE = "MCP_OAUTH_AUDIENCE"
 ENV_JWKS_URL = "MCP_OAUTH_JWKS_URL"
-ENV_INTROSPECTION_URL = "MCP_OAUTH_INTROSPECTION_URL"
-ENV_INTROSPECTION_CLIENT_ID = "MCP_OAUTH_INTROSPECTION_CLIENT_ID"
-ENV_INTROSPECTION_CLIENT_SECRET = "MCP_OAUTH_INTROSPECTION_CLIENT_SECRET"
 _ENV_NAMES = (
     ENV_ISSUER_URL,
     ENV_RESOURCE_URL,
     ENV_REQUIRED_SCOPES,
     ENV_AUDIENCE,
     ENV_JWKS_URL,
-    ENV_INTROSPECTION_URL,
-    ENV_INTROSPECTION_CLIENT_ID,
-    ENV_INTROSPECTION_CLIENT_SECRET,
 )
 
 DEFAULT_REQUIRED_SCOPES = ("electiondata:read",)
@@ -56,8 +48,6 @@ _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 def _http_client() -> httpx2.AsyncClient:
-    # ponytail: one connection per JWKS fetch or introspection call. Keep a
-    # per-worker client if introspection latency shows up in tool timings.
     return httpx2.AsyncClient(timeout=HTTP_TIMEOUT)
 
 
@@ -171,43 +161,6 @@ class JWTTokenVerifier:
         self._refresh_at = now + JWKS_CACHE_SECONDS
 
 
-class IntrospectionTokenVerifier:
-    """Ask the authorization server whether a token is active (RFC 7662)."""
-
-    def __init__(
-        self,
-        introspection_url: str,
-        *,
-        issuer: str,
-        audience: str,
-        client_auth: tuple[str, str] | None,
-    ) -> None:
-        self._url = introspection_url
-        self._issuer = issuer
-        self._audience = audience
-        # RFC 6749 §2.3.1: form-encode the credentials before HTTP Basic.
-        self._auth = (
-            (quote_plus(client_auth[0]), quote_plus(client_auth[1])) if client_auth else None
-        )
-
-    async def verify_token(self, token: str) -> AccessToken | None:
-        try:
-            async with _http_client() as client:
-                response = await client.post(
-                    self._url,
-                    data={"token": token, "token_type_hint": "access_token"},
-                    auth=self._auth,
-                )
-            response.raise_for_status()
-            claims = response.json()
-        except (httpx2.HTTPError, ValueError) as error:
-            logger.warning("Token introspection at %s failed: %s", self._url, error)
-            return None
-        if not isinstance(claims, dict) or claims.get("active") is not True:
-            return None
-        return _access_token(token, claims, issuer=self._issuer, audience=self._audience)
-
-
 @dataclass(frozen=True)
 class OAuthConfig:
     auth: AuthSettings
@@ -233,31 +186,14 @@ def load_oauth_config() -> OAuthConfig | None:
     if not resource:
         raise ValueError(f"{ENV_RESOURCE_URL} is required when {ENV_ISSUER_URL} is set")
     jwks_url = env[ENV_JWKS_URL]
-    introspection_url = env[ENV_INTROSPECTION_URL]
-    if bool(jwks_url) == bool(introspection_url):
-        raise ValueError(f"Set exactly one of {ENV_JWKS_URL} or {ENV_INTROSPECTION_URL}")
-    for name in (ENV_ISSUER_URL, ENV_RESOURCE_URL, ENV_JWKS_URL, ENV_INTROSPECTION_URL):
+    if not jwks_url:
+        raise ValueError(f"{ENV_JWKS_URL} is required when {ENV_ISSUER_URL} is set")
+    for name in (ENV_ISSUER_URL, ENV_RESOURCE_URL, ENV_JWKS_URL):
         if env[name]:
             _require_https(name, env[name])
 
     audience = env[ENV_AUDIENCE] or resource
-    verifier: TokenVerifier
-    if jwks_url:
-        verifier = JWTTokenVerifier(jwks_url, issuer=issuer, audience=audience)
-    else:
-        client_id = env[ENV_INTROSPECTION_CLIENT_ID]
-        client_secret = env[ENV_INTROSPECTION_CLIENT_SECRET]
-        if bool(client_id) != bool(client_secret):
-            raise ValueError(
-                f"Set both {ENV_INTROSPECTION_CLIENT_ID} and {ENV_INTROSPECTION_CLIENT_SECRET}, "
-                "or neither"
-            )
-        verifier = IntrospectionTokenVerifier(
-            introspection_url,
-            issuer=issuer,
-            audience=audience,
-            client_auth=(client_id, client_secret) if client_id else None,
-        )
+    verifier: TokenVerifier = JWTTokenVerifier(jwks_url, issuer=issuer, audience=audience)
 
     auth = AuthSettings.model_validate(
         {

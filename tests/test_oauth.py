@@ -9,18 +9,14 @@ import pytest
 from electiondata_my_mcp import oauth
 from electiondata_my_mcp.oauth import (
     ENV_AUDIENCE,
-    ENV_INTROSPECTION_CLIENT_ID,
-    ENV_INTROSPECTION_CLIENT_SECRET,
     ENV_ISSUER_URL,
     ENV_JWKS_URL,
     ENV_REQUIRED_SCOPES,
     ENV_RESOURCE_URL,
-    IntrospectionTokenVerifier,
     JWTTokenVerifier,
     load_oauth_config,
 )
 from fake_authorization_server import (
-    INTROSPECTION_URL,
     ISSUER,
     JWKS_URL,
     OTHER_KEY,
@@ -32,8 +28,7 @@ from fake_authorization_server import (
 
 pytestmark = pytest.mark.unit
 
-JWKS_ENV = resource_server_env("jwks")
-INTROSPECTION_ENV = resource_server_env("introspection")
+JWKS_ENV = resource_server_env()
 
 
 def _setenv(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> None:
@@ -43,14 +38,6 @@ def _setenv(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> None:
 
 def _jwt_verifier(audience: str = RESOURCE) -> JWTTokenVerifier:
     return JWTTokenVerifier(JWKS_URL, issuer=ISSUER, audience=audience)
-
-
-def _introspection_verifier(
-    client_auth: tuple[str, str] | None = None,
-) -> IntrospectionTokenVerifier:
-    return IntrospectionTokenVerifier(
-        INTROSPECTION_URL, issuer=ISSUER, audience=RESOURCE, client_auth=client_auth
-    )
 
 
 def test_oauth_is_off_by_default(oauth_env: pytest.MonkeyPatch) -> None:
@@ -71,16 +58,6 @@ def test_jwks_config(oauth_env: pytest.MonkeyPatch) -> None:
     assert config.auth.validate_token_resource is True
 
 
-def test_introspection_config(oauth_env: pytest.MonkeyPatch) -> None:
-    _setenv(oauth_env, INTROSPECTION_ENV)
-
-    config = load_oauth_config()
-
-    assert config is not None
-    assert isinstance(config.verifier, IntrospectionTokenVerifier)
-    assert config.auth.required_scopes == [SCOPE]
-
-
 def test_custom_audience_is_checked_by_the_verifier(oauth_env: pytest.MonkeyPatch) -> None:
     _setenv(oauth_env, {**JWKS_ENV, ENV_AUDIENCE: "api://electiondata"})
 
@@ -90,17 +67,22 @@ def test_custom_audience_is_checked_by_the_verifier(oauth_env: pytest.MonkeyPatc
     assert config.auth.validate_token_resource is False
 
 
+def test_apply_oauth_config_sets_sdk_token_verifier_attribute() -> None:
+    """Guard test: fail loudly if the SDK stops using _token_verifier."""
+    from electiondata_my_mcp.server import mcp
+
+    assert hasattr(mcp, "_token_verifier"), (
+        "MCPServer._token_verifier attribute no longer exists. "
+        "Update apply_oauth_config to use the SDK's public API for token verification."
+    )
+
+
 @pytest.mark.parametrize(
     ("env", "match"),
     [
         ({ENV_JWKS_URL: JWKS_URL}, "MCP_OAUTH_JWKS_URL is set but MCP_OAUTH_ISSUER_URL is not"),
-        (
-            {ENV_INTROSPECTION_CLIENT_SECRET: "hunter2"},
-            "MCP_OAUTH_INTROSPECTION_CLIENT_SECRET is set but",
-        ),
         ({ENV_ISSUER_URL: ISSUER, ENV_JWKS_URL: JWKS_URL}, "MCP_OAUTH_RESOURCE_URL is required"),
-        ({ENV_ISSUER_URL: ISSUER, ENV_RESOURCE_URL: RESOURCE}, "exactly one"),
-        ({**JWKS_ENV, **INTROSPECTION_ENV}, "exactly one"),
+        ({ENV_ISSUER_URL: ISSUER, ENV_RESOURCE_URL: RESOURCE}, "MCP_OAUTH_JWKS_URL is required"),
         ({**JWKS_ENV, ENV_ISSUER_URL: "http://auth.example.com"}, "MCP_OAUTH_ISSUER_URL must"),
         (
             {**JWKS_ENV, ENV_RESOURCE_URL: "http://mcp.example.com/mcp"},
@@ -109,10 +91,6 @@ def test_custom_audience_is_checked_by_the_verifier(oauth_env: pytest.MonkeyPatc
         ({**JWKS_ENV, ENV_RESOURCE_URL: "not a url"}, "MCP_OAUTH_RESOURCE_URL must"),
         ({**JWKS_ENV, ENV_JWKS_URL: "http://auth.example.com/jwks"}, "MCP_OAUTH_JWKS_URL must"),
         ({**JWKS_ENV, ENV_REQUIRED_SCOPES: ","}, "at least one scope"),
-        (
-            {**INTROSPECTION_ENV, ENV_INTROSPECTION_CLIENT_ID: ""},
-            "Set both MCP_OAUTH_INTROSPECTION_CLIENT_ID",
-        ),
     ],
 )
 def test_bad_env_fails_at_startup_without_echoing_values(
@@ -241,45 +219,3 @@ def test_odd_claims_map_to_no_scopes_or_no_token(
     access = oauth._access_token("t", claims, issuer=ISSUER, audience=RESOURCE)
 
     assert (access.scopes if access else None) == scopes
-
-
-async def test_introspection_accepts_active_token_with_client_auth(
-    auth_server: FakeAuthorizationServer,
-) -> None:
-    verifier = _introspection_verifier(client_auth=("rs client", "s3cr:t"))
-
-    access = await verifier.verify_token(auth_server.mint())
-
-    assert access is not None
-    assert access.client_id == "test-client"
-    assert access.scopes == [SCOPE]
-    assert access.resource == RESOURCE
-    expected = base64.b64encode(b"rs+client:s3cr%3At").decode()
-    assert auth_server.introspection_auth == [f"Basic {expected}"]
-
-
-@pytest.mark.parametrize(
-    "make_token",
-    [
-        lambda _s: "not-a-token",
-        lambda s: s.mint(exp=int(time.time()) - 120),
-        lambda s: s.mint(aud="https://other.example.com/mcp"),
-        lambda s: s.mint(iss="https://evil.example.com"),
-    ],
-    ids=["inactive", "expired", "other audience", "other issuer"],
-)
-async def test_introspection_rejects(
-    auth_server: FakeAuthorizationServer,
-    make_token: Callable[[FakeAuthorizationServer], str],
-) -> None:
-    assert await _introspection_verifier().verify_token(make_token(auth_server)) is None
-    assert auth_server.introspection_auth == [None]
-
-
-async def test_introspection_endpoint_failure_rejects_the_token(
-    auth_server: FakeAuthorizationServer,
-) -> None:
-    verifier = IntrospectionTokenVerifier(
-        f"{ISSUER}/missing", issuer=ISSUER, audience=RESOURCE, client_auth=None
-    )
-    assert await verifier.verify_token(auth_server.mint()) is None
