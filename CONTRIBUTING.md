@@ -63,6 +63,8 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.11–3.14.
 
   `--no-cov` is required for the integration run: a handful of live tests will not meet the 80% gate. These tests spawn `python -m electiondata_my_mcp` and query `headline_stats` over HTTP; they are not the ElectionData.MY REST API.
 
+  `tests/test_live_auth0_oauth.py` hits a real Auth0 tenant when `AUTH0_DOMAIN`, `AUTH0_CI_CLIENT_ID`, and `AUTH0_CI_CLIENT_SECRET` are set (repository secrets in CI). Setup steps and `MCP_OAUTH_*` mapping are in [docs/auth0.md](docs/auth0.md).
+
 5. Install the pre-commit hooks
 
   ```bash
@@ -119,6 +121,7 @@ Point a client at the checkout instead of PyPI — the same block works in Claud
 | --- | --- |
 | `src/electiondata_my_mcp/server.py` | MCP tools, resource, prompt, stdio CLI, `/health`. |
 | `src/electiondata_my_mcp/http_app.py` | Streamable HTTP Starlette app (CORS, transport security). |
+| `src/electiondata_my_mcp/oauth.py` | Optional OAuth 2.1 resource server for `/mcp`: JWT access tokens verified against JWKS (off unless configured). |
 | `src/electiondata_my_mcp/settings.py` | HTTP Host/Origin allowlists from the environment. |
 | `src/electiondata_my_mcp/duckdb_lake.py` | Table → Parquet URL map, `connect()`, CLI. |
 | `src/electiondata_my_mcp/duckdb_pool.py` | Per-process DuckDB cursor pool used by `execute_query` / `describe_dataset`. |
@@ -126,6 +129,8 @@ Point a client at the checkout instead of PyPI — the same block works in Claud
 | `src/electiondata_my_mcp/prompt_loader.py` | Fetches and caches the Query Builder guide. |
 | `src/electiondata_my_mcp/prompts/query-builder-prompt.md` | Bundled fallback if GitHub is unreachable. |
 | `PRODUCTION.md` | Streamable HTTP deploy (uvicorn workers, CORS, allowlists). |
+| `docs/auth0.md` | Auth0 API, M2M app, `MCP_OAUTH_*` env vars, live OAuth integration test. |
+| `scripts/auth0_setup.py` | Optional example: provision Auth0 for CI/local tests via Auth0 MCP. |
 | `tests/` | Pytest suite. `@pytest.mark.unit` (mocked; default CI). `@pytest.mark.integration` is opt-in (live stdio + lake). |
 
 ## Common changes

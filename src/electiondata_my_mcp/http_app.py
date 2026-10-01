@@ -16,6 +16,7 @@ from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Mount
 
+from electiondata_my_mcp.oauth import apply_oauth_config
 from electiondata_my_mcp.server import mcp
 from electiondata_my_mcp.settings import cors_origin_config, load_http_settings
 
@@ -29,12 +30,13 @@ CORS_ALLOW_HEADERS = [
     "Mcp-Protocol-Version",
     "Mcp-Session-Id",
 ]
-CORS_EXPOSE_HEADERS = ["Mcp-Session-Id"]
+CORS_EXPOSE_HEADERS = ["Mcp-Session-Id", "WWW-Authenticate"]
 
 
 def build_asgi_app() -> Starlette:
     """Build the host Starlette app from the current process environment."""
     settings = load_http_settings()
+    apply_oauth_config(mcp)
     security = TransportSecuritySettings(
         enable_dns_rebinding_protection=settings.enable_dns_rebinding_protection,
         allowed_hosts=settings.allowed_hosts,
