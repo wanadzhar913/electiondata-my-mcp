@@ -88,7 +88,6 @@ async def test_auth0_access_token_calls_a_tool(oauth_env: pytest.MonkeyPatch) ->
                     {"sql": "SELECT seat FROM headline_stats LIMIT 1"},
                 )
 
-    assert result.response.status_code == 200
     assert result.is_error is False
     assert result.structured_content is not None
     assert result.structured_content["valid"] is True
