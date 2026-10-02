@@ -2,6 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/electiondata-my-mcp)](https://pypi.org/project/electiondata-my-mcp/)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/electiondata-my-mcp?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/electiondata-my-mcp)
+<a href="https://mcpmarket.com/server/electiondata-my?utm_source=readme&utm_medium=badge"><img alt="Listed on MCP Market" src="https://mcpmarket.com/badge/server/electiondata-my.svg?style=compact" height="20"></a>
 
 An MCP server that lets an LLM answer questions about Malaysian elections by writing DuckDB SQL against the public [ElectionData.MY data lake](https://electiondata.my/data-catalogue/) — every Parliament and DUN contest ever held, down to saluran-level ballots and voter rolls. **No API key, no database to provision, no data to download.** The lake is public Parquet over HTTP and DuckDB reads it in place.
 
@@ -126,7 +127,7 @@ Add the server in **Settings → Tools & MCP**, or write it to `~/.cursor/mcp.js
 
 ### Streamable HTTP
 
-To serve Streamable HTTP (CORS, `/health`, workers) instead of stdio, see [PRODUCTION.md](PRODUCTION.md).
+To serve Streamable HTTP (CORS, `/health`, workers) instead of stdio, or to run it with Docker, see [PRODUCTION.md](docs/PRODUCTION.md).
 
 ### Sample Conversations
 

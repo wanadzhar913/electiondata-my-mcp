@@ -2,7 +2,7 @@
 
 The ElectionData.MY MCP server is an OAuth 2.1 **resource server** for Streamable HTTP. It verifies JWT access tokens against your identity provider’s JWKS; it does not sign users in or issue tokens. [Auth0](https://auth0.com/) is one supported authorization server.
 
-General deploy and env var reference: [PRODUCTION.md](../PRODUCTION.md).
+General deploy and env var reference: [PRODUCTION.md](PRODUCTION.md).
 
 ## What you configure in Auth0
 
@@ -16,7 +16,7 @@ General deploy and env var reference: [PRODUCTION.md](../PRODUCTION.md).
    - Copy **Client ID** and **Client Secret** from this app—not from a SPA or regular web application.
 
 3. **Resource Parameter Compatibility Profile** (Auth0 dashboard)
-   Enable this if MCP clients send RFC 8707 `resource`; see [PRODUCTION.md](../PRODUCTION.md).
+   Enable this if MCP clients send RFC 8707 `resource`; see [PRODUCTION.md](PRODUCTION.md).
 
 Interactive user login (browser, PKCE) uses a different Auth0 application type; the live test in this repo uses **client credentials** only.
 
