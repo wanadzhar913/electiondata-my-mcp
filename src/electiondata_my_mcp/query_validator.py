@@ -46,6 +46,11 @@ TABLE_REFERENCE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 LIMIT_PATTERN = re.compile(r"\bLIMIT\s+(\d+)\b", re.IGNORECASE)
+SE_ELECTION_FILTER_PATTERN = re.compile(r"\belection\s*=\s*'SE-", re.IGNORECASE)
+STATE_FILTER_PATTERN = re.compile(r"\bstate\s*(=|IN\b|LIKE\b)", re.IGNORECASE)
+STATE_ELECTION_TABLES = frozenset(
+    {"headline_ballots", "headline_stats", "voter_demographics"},
+)
 KEYWORD_PATTERN = re.compile(
     r"\b(" + "|".join(FORBIDDEN_KEYWORDS) + r")\b",
     re.IGNORECASE,
@@ -119,6 +124,16 @@ def validate_query(sql: str) -> ValidationResult:
             errors.append(
                 f"Queries using voter_roll_* tables must include LIMIT {VOTER_ROLL_LIMIT} or less"
             )
+
+    if (
+        any(name in STATE_ELECTION_TABLES for name in tables)
+        and SE_ELECTION_FILTER_PATTERN.search(normalized)
+        and not STATE_FILTER_PATTERN.search(normalized)
+    ):
+        warnings.append(
+            "State election filter detected (election = 'SE-*') without a state filter; "
+            "the same SE code can appear in multiple states — add AND state = '...'."
+        )
 
     return ValidationResult(
         valid=not errors,

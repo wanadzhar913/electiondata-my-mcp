@@ -47,13 +47,15 @@ def test_list_datasets_includes_known_table() -> None:
     assert len(datasets) == 27
     headline_stats = next(item for item in datasets if item["name"] == "headline_stats")
     assert headline_stats["streamed"] is False
-    assert "Seat-level statistics" in headline_stats["description"]
+    assert "GE-01" in headline_stats["description"]
+    assert "voters_total" in headline_stats["use_for"]
 
 
 def test_list_datasets_describes_saluran_tables() -> None:
     datasets = list_datasets()
     saluran = next(item for item in datasets if item["name"] == "saluran_ballots_ge15")
-    assert saluran["description"] == "Saluran-level candidate ballots for ge15."
+    assert saluran["description"] == "Saluran-level candidate ballots, GE-15 (19 Nov 2022)."
+    assert "use_for" in saluran
 
 
 def test_describe_dataset_returns_columns(patched_connection: MagicMock) -> None:
@@ -137,7 +139,17 @@ def test_execute_query_handles_none_result(patched_connection: MagicMock) -> Non
         "row_count": 0,
         "truncated": False,
         "elapsed_ms": pytest.approx(0, abs=50),
+        "warnings": [],
     }
+
+
+def test_execute_query_returns_state_election_warning(patched_connection: MagicMock) -> None:
+    result = execute_query(
+        "SELECT seat FROM headline_stats WHERE election = 'SE-16' LIMIT 1",
+        max_rows=1,
+    )
+    assert result["warnings"]
+    assert "state filter" in result["warnings"][0].lower()
 
 
 def test_execute_query_rejects_invalid_sql() -> None:

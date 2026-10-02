@@ -46,6 +46,7 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.11–3.14.
 3. Run and validate the server with the [MCP Inspector](https://modelcontextprotocol.io/docs/2026-07-28/tools/inspector)
 
   ```bash
+  cp .env.example .env # to avoid CORS errors when running the server over http
   uv run mcp dev src/electiondata_my_mcp/server.py
   ```
 
@@ -140,7 +141,7 @@ Point a client at the checkout instead of PyPI — the same block works in Claud
 1. Confirm the name and URL in upstream [`datasets.ts`](https://github.com/electiondata-my/meco-front/blob/main/src/components/tools/query-builder/datasets.ts). That file is the source of truth.
 2. Add or update the entry in `DATASETS` in `duckdb_lake.py`.
 3. Voter rolls stay streamed automatically if the name starts with `voter_roll_` (`LAZY`). Do not materialise them.
-4. One-off tables (not `saluran_*` / `voter_roll_*`) need a human description in `DATASET_DESCRIPTIONS` in `server.py`.
+4. Add or update metadata in `dataset_catalog.py` (`SNAPSHOT_LABELS` for new election snapshots, or `CORE_DATASETS` for non-suffixed tables).
 5. Update tests that hard-code the dataset count — `test_list_datasets_includes_known_table` currently expects 27 tables.
 
 ### Validator or query safety
