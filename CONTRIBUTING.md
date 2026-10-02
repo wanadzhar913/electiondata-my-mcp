@@ -128,7 +128,7 @@ Point a client at the checkout instead of PyPI — the same block works in Claud
 | `src/electiondata_my_mcp/query_validator.py` | Read-only SQL allowlist used by `validate_sql` / `execute_query`. |
 | `src/electiondata_my_mcp/prompt_loader.py` | Fetches and caches the Query Builder guide. |
 | `src/electiondata_my_mcp/prompts/query-builder-prompt.md` | Bundled fallback if GitHub is unreachable. |
-| `PRODUCTION.md` | Streamable HTTP deploy (uvicorn workers, CORS, allowlists). |
+| `docs/PRODUCTION.md` | Streamable HTTP deploy (uvicorn workers, CORS, allowlists, Docker). |
 | `docs/auth0.md` | Auth0 API, M2M app, `MCP_OAUTH_*` env vars, live OAuth integration test. |
 | `scripts/auth0_setup.py` | Optional example: provision Auth0 for CI/local tests via Auth0 MCP. |
 | `tests/` | Pytest suite. `@pytest.mark.unit` (mocked; default CI). `@pytest.mark.integration` is opt-in (live stdio + lake). |

@@ -1,3 +1,17 @@
+- [Production: Streamable HTTP](#production-streamable-http)
+  - [Run](#run)
+  - [Client config](#client-config)
+  - [Docker](#docker)
+  - [Host and Origin allowlists](#host-and-origin-allowlists)
+  - [OAuth](#oauth)
+    - [Provider Setup](#provider-setup)
+  - [Workers](#workers)
+- [Design](#design)
+  - [Export an ASGI app instead of `mcp.run("streamable-http")`](#export-an-asgi-app-instead-of-mcprunstreamable-http)
+  - [Stateless HTTP, one process per worker](#stateless-http-one-process-per-worker)
+  - [One DuckDB database per process, cursors for concurrency](#one-duckdb-database-per-process-cursors-for-concurrency)
+  - [Backpressure](#backpressure)
+
 # Production: Streamable HTTP
 
 Stdio is the default transport and is what desktop clients (`uvx electiondata-my-mcp`) speak. This page is the HTTP deploy path: a Starlette app from `mcp.streamable_http_app()`, CORS, DNS-rebinding protection, a `/health` route, and uvicorn workers.
@@ -75,6 +89,39 @@ Claude Code:
 ```bash
 claude mcp add --transport http electiondata-my http://127.0.0.1:8000/mcp
 ```
+
+## Docker
+
+The image runs that same app: `uvicorn electiondata_my_mcp.http_app:app` on `0.0.0.0:8000` with four workers by default. Dev dependencies are not installed (`uv sync --frozen --no-dev`).
+
+The worker count is uvicorn's `WEB_CONCURRENCY` (image default `4`), so change it at run time without rebuilding:
+
+```bash
+docker build --build-arg VERSION="$(uv version --short)" -t electiondata-my-mcp .
+docker run --rm -p 8000:8000 -e WEB_CONCURRENCY=2 electiondata-my-mcp
+
+# verify it works
+# add `-H 'Mcp-Protocol-Version: 2025-11-25'` if your client does not support the latest version
+curl -sS http://127.0.0.1:8000/mcp \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_datasets","arguments":{}}}'
+```
+
+The Dockerfile uses BuildKit cache mounts (`RUN --mount=type=cache`). Docker Buildx does that by default. If `docker build` reports that `--mount` requires BuildKit, prefix the build with `DOCKER_BUILDKIT=1`.
+
+`GET /health` and `POST /mcp` listen on port 8000. `/mcp` accepts a request whose `Host` is `localhost` or `127.0.0.1` (any port), which is what a client on the host sends through `docker run -p 8000:8000`. Another hostname gets [`421`](https://py.sdk.modelcontextprotocol.io/troubleshooting/?h=421#421-misdirected-request-invalid-host-header) from `/mcp` until you allowlist it, same as a non-container deploy:
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e MCP_ALLOWED_HOSTS='mcp.example.com,mcp.example.com:*' \
+  -e MCP_ALLOWED_ORIGINS='https://app.example.com' \
+  electiondata-my-mcp
+```
+
+The image has a Docker `HEALTHCHECK` that requests `GET /health` on `127.0.0.1:8000` from inside the container. The Host allowlist applies only to `/mcp`, so the check keeps passing after you set `MCP_ALLOWED_HOSTS`. Kubernetes ignores `HEALTHCHECK`; point its probes at `/health` instead.
+
+Pool size is still per worker. The image's default four workers and the default `MCP_DUCKDB_POOL_SIZE=4` cap the machine at about sixteen in-flight lake queries. Override the pool the same way as the allowlists (`-e MCP_DUCKDB_POOL_SIZE=4`).
 
 ## Host and Origin allowlists
 
@@ -155,7 +202,7 @@ WWW-Authenticate: Bearer error="invalid_token", error_description="Authenticatio
 
 Your authorization server must issue JWT access tokens (not opaque tokens), signed with an asymmetric key published at a JWKS URL. Tokens must have `aud` containing `MCP_OAUTH_RESOURCE_URL` (or set `MCP_OAUTH_AUDIENCE`) and the required scope.
 
-- **Auth0**: Step-by-step tenant setup, env vars, and CI secrets are in [docs/auth0.md](docs/auth0.md). In short: API identifier = `MCP_OAUTH_RESOURCE_URL`, RS256, scope `electiondata:read`; enable the Resource Parameter Compatibility Profile for RFC 8707; issuer `https://<tenant>/` (trailing `/`); JWKS `https://<tenant>/.well-known/jwks.json`.
+- **Auth0**: Step-by-step tenant setup, env vars, and CI secrets are in [docs/auth0.md](auth0.md). In short: API identifier = `MCP_OAUTH_RESOURCE_URL`, RS256, scope `electiondata:read`; enable the Resource Parameter Compatibility Profile for RFC 8707; issuer `https://<tenant>/` (trailing `/`); JWKS `https://<tenant>/.well-known/jwks.json`.
 - **Keycloak**: Add an Audience mapper to include the resource URL in `aud`.
 
 Providers issuing opaque access tokens are not supported yet.
@@ -175,50 +222,17 @@ export MCP_DUCKDB_POOL_SIZE=4
 export MCP_DUCKDB_POOL_TIMEOUT=10
 ```
 
-## Docker
-
-The image runs that same app: `uvicorn electiondata_my_mcp.http_app:app` on `0.0.0.0:8000` with four workers by default. Dev dependencies are not installed (`uv sync --frozen --no-dev`).
-
-The worker count is uvicorn's `WEB_CONCURRENCY` (image default `4`), so change it at run time without rebuilding:
-
-```bash
-docker build --build-arg VERSION="$(uv version --short)" -t electiondata-my-mcp .
-docker run --rm -p 8000:8000 -e WEB_CONCURRENCY=2 electiondata-my-mcp
-
-# verify it works
-# add `-H 'Mcp-Protocol-Version: 2025-11-25'` if your client does not support the latest version
-curl -sS http://127.0.0.1:8000/mcp \
-  -H 'Accept: application/json, text/event-stream' \
-  -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_datasets","arguments":{}}}'
-```
-
-The Dockerfile uses BuildKit cache mounts (`RUN --mount=type=cache`). Docker Buildx does that by default. If `docker build` reports that `--mount` requires BuildKit, prefix the build with `DOCKER_BUILDKIT=1`.
-
-`GET /health` and `POST /mcp` listen on port 8000. `/mcp` accepts a request whose `Host` is `localhost` or `127.0.0.1` (any port), which is what a client on the host sends through `docker run -p 8000:8000`. Another hostname gets [`421`](https://py.sdk.modelcontextprotocol.io/troubleshooting/?h=421#421-misdirected-request-invalid-host-header) from `/mcp` until you allowlist it, same as a non-container deploy:
-
-```bash
-docker run --rm -p 8000:8000 \
-  -e MCP_ALLOWED_HOSTS='mcp.example.com,mcp.example.com:*' \
-  -e MCP_ALLOWED_ORIGINS='https://app.example.com' \
-  electiondata-my-mcp
-```
-
-The image has a Docker `HEALTHCHECK` that requests `GET /health` on `127.0.0.1:8000` from inside the container. The Host allowlist applies only to `/mcp`, so the check keeps passing after you set `MCP_ALLOWED_HOSTS`. Kubernetes ignores `HEALTHCHECK`; point its probes at `/health` instead.
-
-Pool size is still per worker. The image's default four workers and the default `MCP_DUCKDB_POOL_SIZE=4` cap the machine at about sixteen in-flight lake queries. Override the pool the same way as the allowlists (`-e MCP_DUCKDB_POOL_SIZE=4`).
-
-## Design
+# Design
 
 The [Workers](#workers) section is the runbook. This is why it looks like that.
 
-### Export an ASGI app instead of `mcp.run("streamable-http")`
+## Export an ASGI app instead of `mcp.run("streamable-http")`
 
 `mcp.run("streamable-http")` starts one in-process uvicorn with no `--workers` knob. Production also needs CORS and DNS-rebinding settings on a host Starlette app that wraps `mcp.streamable_http_app()` and runs the MCP session-manager lifespan on the app that actually serves requests. `http_app.py` builds that app; the CLI (or a container) hands it to uvicorn with an explicit worker count. `GET /health` is registered on the same `mcp` instance (`@mcp.custom_route`) and would still be served by `mcp.run`; the custom ASGI export is for workers and the outer middleware stack, not for adding `/health`.
 
 Stdio stays the default. `--host`, `--port`, `--workers`, and the allowlist flags are rejected unless `--transport streamable-http`, so a desktop config cannot open a port by accident.
 
-### Stateless HTTP, one process per worker
+## Stateless HTTP, one process per worker
 
 The HTTP transport sets `stateless_http=True`. A request does not depend on a process-local MCP session, so any worker can serve any request. There is no `Mcp-Session-Id` to pin, and no sticky-session requirement at the load balancer.
 
@@ -251,7 +265,7 @@ CORS and DNS-rebinding protection sit on that same app. Methods and `Mcp-*` head
 
 `GET /health` is unauthenticated on purpose. A probe should not need a session or a token to learn that the process is up.
 
-### One DuckDB database per process, cursors for concurrency
+## One DuckDB database per process, cursors for concurrency
 
 Each worker is its own process. The first query in that process lazily opens one root DuckDB connection, installs `httpfs`, and registers the lake views. Later queries do not open another database. They check out a `cursor()` from that root connection. DuckDB connections are not safe to share across threads; cursors over the same database are.
 
@@ -279,7 +293,7 @@ sequenceDiagram
 
 Cursor creation takes a lock so two threads cannot both decide they are the one to `connect()`. Idle cursors sit in a `LifoQueue` so checkout prefers the most recently returned handle when several are idle; that does not warm lake I/O separately per cursor, because `connect()` runs once per worker, httpfs and the registered views live on the root connection, and every cursor shares that database. Checkout returns the cursor in a `finally` block, including when the query raises, so a failed query does not shrink the pool. `queue.get` does not promise fairness among waiters. Under sustained saturation a given request can lose the race; that is a reason for a short timeout and a clear busy error, not a long hopeful wait.
 
-### Backpressure
+## Backpressure
 
 The pool size is fixed (`MCP_DUCKDB_POOL_SIZE`, default 4). When every cursor is busy, the next query waits instead of opening unbounded DuckDB work. After `MCP_DUCKDB_POOL_TIMEOUT` seconds (default 10) it gets `PoolTimeoutError`, which the tool layer turns into "Too many concurrent lake queries; retry shortly."
 
