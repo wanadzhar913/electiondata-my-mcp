@@ -1,12 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-03
 
-- Enrich `list_datasets` and `describe_dataset` with coverage dates, `use_for` hints, and pointers to `get_query_guide`. Add `dataset_catalog.py` as the metadata source for discovery tools.
-- `validate_sql` / `execute_query` warn when a state-election filter (`election = 'SE-*'`) lacks a `state` filter on headline or demographics tables.
-- Add a production Dockerfile for Streamable HTTP (`electiondata_my_mcp.http_app:app`, four uvicorn workers by default via `WEB_CONCURRENCY`, non-root UID 10001, `/health` `HEALTHCHECK`, Python and uv pinned to the same versions in both stages) and document `docker build` / `docker run` in `docs/PRODUCTION.md`.
-- Add pre-commit hooks for Ruff (lint and format) and basic file checks. CI runs `pre-commit run --all-files`.
-- Optional OAuth 2.1 resource-server protection for Streamable HTTP. Set `MCP_OAUTH_ISSUER_URL`, `MCP_OAUTH_RESOURCE_URL`, and `MCP_OAUTH_JWKS_URL` to require a JWT access token on `/mcp`. For Auth0, the issuer is the tenant origin with a trailing slash (`https://your-tenant.us.auth0.com/`), not the `/oauth/token` URL. The resource URL is the API identifier, including `/mcp` (`http://127.0.0.1:8000/mcp` locally, or `https://mcp.example.com/mcp` in production). Unset, stdio, and `GET /health` stay open.
+- Enrich `list_datasets` and `describe_dataset` with coverage dates, `use_for` hints, and pointers to `get_query_guide`. Add `dataset_catalog.py` as the metadata source for discovery tools. `validate_sql` / `execute_query` warn when a state-election filter (`election = 'SE-*'`) lacks a `state` filter on headline or demographics tables. [#18](https://github.com/wanadzhar913/electiondata-my-mcp/pull/18)
+- Because some MCP clients expose tools but do not auto-inject MCP resources into model context. Agents then query tables blindly instead of loading the official schema guide first. Thus we **add a dedicated `get_query_guide` tool that returns the same content as the `electiondata://query-guide` resource**, reusing the existing `load_prompt()` function. The tool is documented as the recommended first call in the README. [#8](https://github.com/wanadzhar913/electiondata-my-mcp/pull/8)
+- Add Python 3.14 in the CI matrix. [#14](https://github.com/wanadzhar913/electiondata-my-mcp/pull/14)
+- Add a production Dockerfile for Streamable HTTP (`electiondata_my_mcp.http_app:app`, four uvicorn workers by default via `WEB_CONCURRENCY`, non-root UID 10001, `/health` `HEALTHCHECK`, Python and uv pinned to the same versions in both stages) and document `docker build` / `docker run` in `docs/PRODUCTION.md`. [#9](https://github.com/wanadzhar913/electiondata-my-mcp/pull/9)
+- Add pre-commit hooks for Ruff (lint and format) and basic file checks. CI runs `pre-commit run --all-files`. [#12](https://github.com/wanadzhar913/electiondata-my-mcp/pull/12)
+- Optional OAuth 2.1 resource-server protection for Streamable HTTP. Set `MCP_OAUTH_ISSUER_URL`, `MCP_OAUTH_RESOURCE_URL`, and `MCP_OAUTH_JWKS_URL` to require a JWT access token on `/mcp`. For Auth0, the issuer is the tenant origin with a trailing slash (`https://your-tenant.us.auth0.com/`), not the `/oauth/token` URL. The resource URL is the API identifier, including `/mcp` (`http://127.0.0.1:8000/mcp` locally, or `https://mcp.example.com/mcp` in production). Unset, stdio, and `GET /health` stay open. [#11](https://github.com/wanadzhar913/electiondata-my-mcp/pull/11)
 
 ## 0.2.0 — 2026-09-19
 
