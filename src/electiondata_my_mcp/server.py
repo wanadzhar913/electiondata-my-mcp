@@ -18,6 +18,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from electiondata_my_mcp.dataset_catalog import dataset_description, dataset_use_for
 from electiondata_my_mcp.duckdb_lake import DATASETS, LAZY
 from electiondata_my_mcp.duckdb_pool import DuckDBPool, PoolTimeoutError, pool_from_env
 from electiondata_my_mcp.prompt_loader import load_prompt
@@ -34,14 +35,6 @@ ASGI_APP_IMPORT_STRING = "electiondata_my_mcp.http_app:app"
 logger = logging.getLogger(__name__)
 
 _pool: DuckDBPool = pool_from_env()
-
-DATASET_DESCRIPTIONS: dict[str, str] = {
-    "headline_ballots": "Candidate-level results for every Parliament and DUN contest.",
-    "headline_stats": "Seat-level statistics for every Parliament and DUN contest.",
-    "voter_demographics": "Seat-level voter demographics with nationwide ethnic groupings.",
-    "voter_demographics_sarawak": "Sarawak seat demographics with Sarawak-specific ethnic groups.",
-    "voter_demographics_sabah": "Sabah seat demographics with Sabah-specific ethnic groups.",
-}
 
 
 async def log_timing(
@@ -75,23 +68,11 @@ def _connection() -> Iterator[duckdb.DuckDBPyConnection]:
         raise ToolError("Too many concurrent lake queries; retry shortly.") from error
 
 
-def _dataset_description(name: str) -> str:
-    if name in DATASET_DESCRIPTIONS:
-        return DATASET_DESCRIPTIONS[name]
-    if name.startswith("saluran_ballots_"):
-        return f"Saluran-level candidate ballots for {name.removeprefix('saluran_ballots_')}."
-    if name.startswith("saluran_stats_"):
-        return f"Saluran-level statistics for {name.removeprefix('saluran_stats_')}."
-    if name.startswith("voter_roll_"):
-        return f"Voter roll for {name.removeprefix('voter_roll_')}."
-    return "ElectionData.MY lake dataset."
-
-
-def _require_valid_query(sql: str) -> list[str]:
+def _require_valid_query(sql: str) -> tuple[list[str], list[str]]:
     result = validate_query(sql)
     if not result.valid:
         raise ToolError("; ".join(result.errors))
-    return result.tables
+    return result.tables, result.warnings
 
 
 def _serialize_rows(
@@ -143,12 +124,18 @@ def get_query_guide() -> str:
 
 @mcp.tool()
 def list_datasets() -> list[dict[str, Any]]:
-    """List available lake datasets and whether each is streamed over HTTP."""
+    """List lake datasets with coverage hints and whether each is streamed over HTTP.
+
+    Each entry includes description (coverage dates and pitfalls) and use_for
+    (typical questions). For full column schemas and join rules, call get_query_guide
+    before writing SQL.
+    """
     return [
         {
             "name": name,
             "url": url,
-            "description": _dataset_description(name),
+            "description": dataset_description(name),
+            "use_for": dataset_use_for(name),
             "streamed": name in LAZY,
         }
         for name, url in DATASETS.items()
@@ -157,7 +144,11 @@ def list_datasets() -> list[dict[str, Any]]:
 
 @mcp.tool()
 def describe_dataset(dataset: str) -> dict[str, Any]:
-    """Return column names and types for a lake dataset."""
+    """Return column names and types for a lake dataset.
+
+    Description and use_for summarize coverage; call get_query_guide for full
+    schemas, join keys, and SQL safety rules.
+    """
     if dataset not in DATASETS:
         raise ToolError(f"Unknown dataset: {dataset}")
 
@@ -169,7 +160,8 @@ def describe_dataset(dataset: str) -> dict[str, Any]:
 
     return {
         "dataset": dataset,
-        "description": _dataset_description(dataset),
+        "description": dataset_description(dataset),
+        "use_for": dataset_use_for(dataset),
         "streamed": dataset in LAZY,
         "columns": [{"name": name, "type": column_type} for name, column_type, *_ in rows],
     }
@@ -177,7 +169,10 @@ def describe_dataset(dataset: str) -> dict[str, Any]:
 
 @mcp.tool()
 def validate_sql(sql: str) -> dict[str, Any]:
-    """Validate read-only SQL against lake table and voter-roll rules."""
+    """Validate read-only SQL against lake table and voter-roll rules.
+
+    Warnings flag likely mistakes (e.g. state election filters without state).
+    """
     result = validate_query(sql)
     return {
         "valid": result.valid,
@@ -196,7 +191,7 @@ def sample_dataset(dataset: str, limit: int = 5) -> dict[str, Any]:
         raise ToolError("limit must be between 1 and 100")
 
     sql = f"SELECT * FROM {dataset} LIMIT {limit}"
-    _require_valid_query(sql)
+    _, _ = _require_valid_query(sql)
     return execute_query(sql, max_rows=limit)
 
 
@@ -206,7 +201,7 @@ def execute_query(sql: str, max_rows: int = DEFAULT_MAX_ROWS) -> dict[str, Any]:
     if max_rows < 1 or max_rows > ABSOLUTE_MAX_ROWS:
         raise ToolError(f"max_rows must be between 1 and {ABSOLUTE_MAX_ROWS}")
 
-    _require_valid_query(sql)
+    _, warnings = _require_valid_query(sql)
     started = time.perf_counter()
 
     with _connection() as con:
@@ -220,6 +215,7 @@ def execute_query(sql: str, max_rows: int = DEFAULT_MAX_ROWS) -> dict[str, Any]:
                     "row_count": 0,
                     "truncated": False,
                     "elapsed_ms": elapsed_ms,
+                    "warnings": warnings,
                 }
 
             columns, rows, truncated = _serialize_rows(result, max_rows)
@@ -233,6 +229,7 @@ def execute_query(sql: str, max_rows: int = DEFAULT_MAX_ROWS) -> dict[str, Any]:
         "row_count": len(rows),
         "truncated": truncated,
         "elapsed_ms": elapsed_ms,
+        "warnings": warnings,
     }
 
 

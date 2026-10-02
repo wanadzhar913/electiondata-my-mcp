@@ -95,3 +95,19 @@ def test_strips_sql_comments() -> None:
 def test_referenced_tables_preserves_order() -> None:
     sql = "SELECT * FROM saluran_stats_ge15 JOIN saluran_ballots_ge15 USING (seat)"
     assert referenced_tables(sql) == ["saluran_stats_ge15", "saluran_ballots_ge15"]
+
+
+def test_warns_on_state_election_without_state_filter() -> None:
+    result = validate_query(
+        "SELECT seat FROM headline_stats WHERE election = 'SE-16' LIMIT 1",
+    )
+    assert result.valid
+    assert any("state filter" in warning.lower() for warning in result.warnings)
+
+
+def test_no_state_election_warning_when_state_present() -> None:
+    result = validate_query(
+        "SELECT seat FROM headline_stats WHERE election = 'SE-16' AND state = 'Johor' LIMIT 1",
+    )
+    assert result.valid
+    assert not result.warnings
