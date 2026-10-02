@@ -62,7 +62,7 @@ def _access_token(
     issuer: str,
     audience: str,
 ) -> AccessToken | None:
-    """Map JWT or RFC 7662 claims to an ``AccessToken``, or ``None`` if the token
+    """Map JWT claims to an ``AccessToken``, or ``None`` if the token
     was not issued by ``issuer`` for ``audience``."""
     if claims.get("iss", issuer) != issuer:
         return None
@@ -71,7 +71,7 @@ def _access_token(
     resource = next((a for a in audiences if isinstance(a, str) and _same_url(a, audience)), None)
     if resource is None:
         return None
-    # RFC 9068 / 7662 ``scope`` is a space-separated string; Entra and Okta
+    # RFC 9068 ``scope`` is a space-separated string; Entra and Okta
     # put a string or a list in ``scp``.
     scope = claims.get("scope") or claims.get("scp")
     if isinstance(scope, str):

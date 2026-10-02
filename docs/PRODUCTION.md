@@ -184,10 +184,10 @@ A token is accepted only if it:
 - is signed by a key in the JWKS (asymmetric keys only, with the algorithm that key names).
 - has `iss` equal to `MCP_OAUTH_ISSUER_URL`.
 - has `aud` containing `MCP_OAUTH_AUDIENCE`, which defaults to the resource URL.
-- is not expired and not before `nbf` (30 s leeway applies to `nbf` and `iat`, not `exp`).
+- is not expired and not before `nbf` (30 s leeway applies to `exp`, `nbf`, and `iat`).
 - carries every required scope in `scope` or `scp`.
 
-A missing or rejected token is `401`, and a missing scope is `403`. A JWKS endpoint that is down, slow (10 s timeout) or returns an error rejects the token; there is no fallback. JWKS keys are cached for an hour; a JWKS outage only affects the first fetch or an unknown `kid` (cached keys keep working). A token with an unknown `kid` triggers a refetch at most every 30 s, which picks up key rotation.
+A missing or rejected token is `401`, and a missing scope is `403`. JWKS keys are cached for an hour. A JWKS endpoint that is down, slow (10 s timeout), or returns an error only rejects tokens when no cached keys are available (first fetch after boot) or when the token's `kid` is unknown. Previously cached keys keep working during an outage. A token with an unknown `kid` triggers a refetch at most every 30 s, which picks up key rotation.
 
 `POST /mcp` without a token:
 
