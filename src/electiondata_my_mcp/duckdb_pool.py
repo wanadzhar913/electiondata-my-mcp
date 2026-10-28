@@ -17,7 +17,7 @@ from contextlib import contextmanager
 
 import duckdb
 
-from electiondata_my_mcp.duckdb_lake import connect as default_connect
+from electiondata_my_mcp.duckdb_lake import connect
 
 DEFAULT_POOL_SIZE = 4
 DEFAULT_CHECKOUT_TIMEOUT = 10.0
@@ -25,6 +25,10 @@ ENV_POOL_SIZE = "MCP_DUCKDB_POOL_SIZE"
 ENV_POOL_TIMEOUT = "MCP_DUCKDB_POOL_TIMEOUT"
 
 ConnectFn = Callable[[], duckdb.DuckDBPyConnection]
+
+
+def default_connect() -> duckdb.DuckDBPyConnection:
+    return connect(lake_only=True)
 
 
 class PoolTimeoutError(TimeoutError):

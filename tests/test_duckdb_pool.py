@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import threading
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import duckdb
 import pytest
@@ -13,10 +13,17 @@ from electiondata_my_mcp.duckdb_pool import (
     ENV_POOL_TIMEOUT,
     DuckDBPool,
     PoolTimeoutError,
+    default_connect,
     pool_from_env,
 )
 
 pytestmark = pytest.mark.unit
+
+
+@patch("electiondata_my_mcp.duckdb_pool.connect")
+def test_default_connect_is_lake_only(mock_connect: MagicMock) -> None:
+    assert default_connect() is mock_connect.return_value
+    mock_connect.assert_called_once_with(lake_only=True)
 
 
 def _memory_db() -> duckdb.DuckDBPyConnection:

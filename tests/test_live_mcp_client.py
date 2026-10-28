@@ -79,3 +79,24 @@ async def test_stdio_client_queries_headline_stats() -> None:
         assert queried["columns"] == ["seat"]
         assert len(queried["rows"]) == 1
         assert queried["rows"][0]["seat"]
+
+
+async def test_stdio_server_cannot_read_local_files(tmp_path: Path) -> None:
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOP-SECRET", encoding="utf-8")
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "electiondata_my_mcp"],
+        cwd=REPO,
+    )
+    async with Client(params, read_timeout_seconds=LAKE_READ_TIMEOUT_SECONDS) as client:
+        result = await client.call_tool(
+            "execute_query",
+            {
+                "sql": (
+                    f"SELECT content FROM read_text('{secret.as_posix()}'), headline_stats LIMIT 1"
+                ),
+            },
+        )
+    assert result.is_error
+    assert "TOP-SECRET" not in str(result.content)

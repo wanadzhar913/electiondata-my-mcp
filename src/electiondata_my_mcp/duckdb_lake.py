@@ -73,12 +73,29 @@ DATASETS: dict[str, str] = {
 LAZY = {name for name in DATASETS if name.startswith("voter_roll_")}
 
 
-def connect(db_path: str = ":memory:", cache: bool = False):
+def restrict_to_lake(con, root: str = f"{LAKE}/") -> None:
+    """Allow file and network reads under ``root`` only, then freeze the configuration.
+
+    This covers every read path DuckDB has — table functions such as
+    ``read_text``, ``FROM '/path'`` replacement scans, and arbitrary URLs — so
+    the SQL validator's deny-list is not the only barrier. Run it after httpfs
+    is loaded and the views exist: extensions cannot be installed or loaded once
+    external access is off.
+    """
+    con.execute(f"SET allowed_directories=['{root}']")
+    con.execute("SET enable_external_access=false")
+    con.execute("SET lock_configuration=true")
+
+
+def connect(db_path: str = ":memory:", cache: bool = False, lake_only: bool = False):
     """Return a DuckDB connection with every lake dataset registered.
 
     With cache=True the non-voter-roll tables are materialised into db_path on
     first use, so later queries read from disk instead of the network. Pass a
     real file path for that to persist across runs.
+
+    With lake_only=True the connection can read nothing but the lake (see
+    ``restrict_to_lake``). The MCP server always sets it; the CLI does not.
     """
     import duckdb
 
@@ -94,6 +111,8 @@ def connect(db_path: str = ":memory:", cache: bool = False):
         else:
             con.execute(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM read_parquet('{url}')")
 
+    if lake_only:
+        restrict_to_lake(con)
     return con
 
 
