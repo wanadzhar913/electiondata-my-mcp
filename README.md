@@ -211,6 +211,8 @@ Every query passes [`query_validator.py`](src/electiondata_my_mcp/query_validato
 - A query must reference at least one known lake table.
 - Anything touching a `voter_roll_*` table must carry `LIMIT 10000` or less — the same rule the website enforces.
 
+The validator is a first line of defence, not the only one. The server's DuckDB connection can read only under `https://lake.electiondata.my/`: after the views are registered it sets `allowed_directories` to the lake, turns off `enable_external_access`, and locks the configuration. Any other local file or URL is refused by DuckDB itself, whichever function or syntax a query uses. The standalone `duckdb_lake.py` CLI leaves access open (`connect(lake_only=False)`).
+
 `execute_query` returns at most 100 rows by default and 1,000 at the ceiling, flagging `truncated` rather than silently cutting.
 
 ### Querying the lake directly

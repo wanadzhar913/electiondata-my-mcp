@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Security:** restrict the server's DuckDB connection to the lake. `execute_query` accepted functions missing from the validator's deny-list (`read_text`, `read_csv_auto`, `parquet_scan`, …), so a query could read local files or fetch arbitrary URLs, including cloud metadata endpoints. The pool's connection now sets `allowed_directories` to `https://lake.electiondata.my/`, disables `enable_external_access`, and locks the configuration, so DuckDB refuses every other read path.
+
 ## 0.3.0 — 2026-10-03
 
 - Enrich `list_datasets` and `describe_dataset` with coverage dates, `use_for` hints, and pointers to `get_query_guide`. Add `dataset_catalog.py` as the metadata source for discovery tools. `validate_sql` / `execute_query` warn when a state-election filter (`election = 'SE-*'`) lacks a `state` filter on headline or demographics tables. [#18](https://github.com/wanadzhar913/electiondata-my-mcp/pull/18)
