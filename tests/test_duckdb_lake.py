@@ -2,13 +2,89 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import duckdb
 import pytest
 
-from electiondata_my_mcp.duckdb_lake import DATASETS, LAZY, connect, main
+from electiondata_my_mcp.duckdb_lake import DATASETS, LAZY, connect, main, restrict_to_lake
 
 pytestmark = pytest.mark.unit
+
+LOCKDOWN_SQL = [
+    "SET allowed_directories=['https://lake.electiondata.my/']",
+    "SET enable_external_access=false",
+    "SET lock_configuration=true",
+]
+
+
+@pytest.fixture
+def local_lake(tmp_path: Path) -> tuple[duckdb.DuckDBPyConnection, Path, Path]:
+    """A connection restricted to a local stand-in lake, plus a secret file outside it."""
+    lake = tmp_path / "lake"
+    lake.mkdir()
+    table = (lake / "headline_stats.parquet").as_posix()
+    duckdb.sql(f"COPY (SELECT 'P.001' AS seat) TO '{table}' (FORMAT parquet)")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOP-SECRET", encoding="utf-8")
+
+    con = duckdb.connect()
+    con.execute(f"CREATE VIEW headline_stats AS SELECT * FROM read_parquet('{table}')")
+    restrict_to_lake(con, root=f"{lake.as_posix()}/")
+    return con, lake, secret
+
+
+def test_restrict_to_lake_keeps_lake_views_readable(local_lake) -> None:
+    con, _, _ = local_lake
+    assert con.cursor().sql("SELECT seat FROM headline_stats").fetchall() == [("P.001",)]
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT * FROM read_text('{secret}')",
+        "SELECT * FROM read_csv_auto('{secret}')",
+        "SELECT * FROM read_blob('{secret}')",
+        "SELECT * FROM '{secret}'",
+        "SELECT * FROM read_text('http://169.254.169.254/latest/meta-data/')",
+    ],
+)
+def test_restrict_to_lake_blocks_reads_outside_the_lake(local_lake, sql: str) -> None:
+    con, _, secret = local_lake
+    with pytest.raises(duckdb.Error) as error:
+        con.cursor().sql(sql.format(secret=secret.as_posix())).fetchall()
+    assert "TOP-SECRET" not in str(error.value)
+
+
+def test_restrict_to_lake_cannot_be_undone(local_lake) -> None:
+    con, _, _ = local_lake
+    with pytest.raises(duckdb.Error, match="configuration has been locked"):
+        con.execute("SET enable_external_access=true")
+
+
+@patch("duckdb.connect")
+def test_connect_lake_only_locks_down_after_views(mock_connect: MagicMock) -> None:
+    connection = MagicMock()
+    connection.execute.return_value.fetchall.return_value = []
+    mock_connect.return_value = connection
+
+    connect(lake_only=True)
+
+    executed = [call.args[0] for call in connection.execute.call_args_list]
+    assert executed[-3:] == LOCKDOWN_SQL
+
+
+@patch("duckdb.connect")
+def test_connect_default_leaves_access_open(mock_connect: MagicMock) -> None:
+    connection = MagicMock()
+    connection.execute.return_value.fetchall.return_value = []
+    mock_connect.return_value = connection
+
+    connect()
+
+    executed = [call.args[0] for call in connection.execute.call_args_list]
+    assert not any(sql.startswith("SET") for sql in executed)
 
 
 @patch("duckdb.connect")
