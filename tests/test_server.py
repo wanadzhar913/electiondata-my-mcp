@@ -12,6 +12,7 @@ from mcp.types import CallToolResult, TextContent
 
 from electiondata_my_mcp import server
 from electiondata_my_mcp.duckdb_pool import DuckDBPool, PoolTimeoutError
+from electiondata_my_mcp.prompt_loader import with_mcp_lookup_appendix
 from electiondata_my_mcp.server import (
     ABSOLUTE_MAX_ROWS,
     build_election_query,
@@ -44,11 +45,21 @@ def patched_connection(mock_duckdb_connection: MagicMock) -> MagicMock:
 
 def test_list_datasets_includes_known_table() -> None:
     datasets = list_datasets()
-    assert len(datasets) == 27
+    assert len(datasets) == 34
     headline_stats = next(item for item in datasets if item["name"] == "headline_stats")
     assert headline_stats["streamed"] is False
     assert "GE-01" in headline_stats["description"]
     assert "voters_total" in headline_stats["use_for"]
+
+
+def test_list_datasets_marks_lookup_tables() -> None:
+    datasets = list_datasets()
+    lookup_party = next(item for item in datasets if item["name"] == "lookup_party")
+    assert lookup_party["streamed"] is False
+    assert lookup_party["url"].endswith("/results_headline/lookup_party.parquet")
+    assert "MCP-specific" in lookup_party["description"]
+    assert "55c6098" in lookup_party["description"]
+    assert "party_uid" in lookup_party["use_for"]
 
 
 def test_list_datasets_describes_saluran_tables() -> None:
@@ -170,13 +181,16 @@ def test_execute_query_wraps_duckdb_errors(patched_connection: MagicMock) -> Non
 
 @patch("electiondata_my_mcp.server.load_prompt", return_value="query guide")
 def test_query_guide_returns_prompt(mock_load_prompt: MagicMock) -> None:
-    assert query_guide() == "query guide"
+    assert query_guide() == with_mcp_lookup_appendix("query guide")
     mock_load_prompt.assert_called_once()
 
 
 @patch("electiondata_my_mcp.server.load_prompt", return_value="query guide")
 def test_get_query_guide_returns_prompt(mock_load_prompt: MagicMock) -> None:
-    assert get_query_guide() == "query guide"
+    guide = get_query_guide()
+    assert guide == with_mcp_lookup_appendix("query guide")
+    assert "MCP-specific appendix" in guide
+    assert "lookup_party" in guide
     mock_load_prompt.assert_called_once()
 
 
@@ -184,7 +198,7 @@ def test_get_query_guide_returns_prompt(mock_load_prompt: MagicMock) -> None:
 def test_build_election_query_returns_messages(mock_load_prompt: MagicMock) -> None:
     messages = build_election_query("Who won GE-15?")
     assert len(messages) == 2
-    assert messages[0].content.text == "query guide"
+    assert messages[0].content.text == with_mcp_lookup_appendix("query guide")
     assert "Who won GE-15?" in messages[1].content.text
 
 
@@ -250,20 +264,12 @@ async def test_call_validate_sql_tool() -> None:
 
 @patch("electiondata_my_mcp.server.load_prompt", return_value="query guide content")
 async def test_call_get_query_guide_tool(mock_load_prompt: MagicMock) -> None:
+    guide = with_mcp_lookup_appendix("query guide content")
     async with Client(mcp, raise_exceptions=True) as client:
         result = await client.call_tool("get_query_guide", {})
         result.meta = None
-        assert result == snapshot(
-            CallToolResult(
-                content=[
-                    TextContent(
-                        type="text",
-                        text="query guide content",
-                    )
-                ],
-                structured_content={"result": "query guide content"},
-            )
-        )
+        assert result.content == [TextContent(type="text", text=guide)]
+        assert result.structured_content == {"result": guide}
         mock_load_prompt.assert_called_once()
 
 

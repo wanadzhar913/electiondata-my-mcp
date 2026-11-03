@@ -9,8 +9,14 @@ src/components/tools/query-builder/copy-prompt.md runs unchanged here.
 The lake is public — no API key, CORS open, HTTP range requests supported — so
 httpfs reads only the row groups and columns a query actually touches.
 
-Table name -> URL mapping mirrors src/components/tools/query-builder/datasets.ts,
-which is the source of truth. Update both together.
+Table name -> URL mapping for the Query Builder tables mirrors
+src/components/tools/query-builder/datasets.ts, which is the source of truth
+for those names. Update those entries when datasets.ts changes.
+
+The lookup_* tables are an MCP-side extension. They are not in datasets.ts.
+electiondata-my/meco-etl commit 55c6098 (2026-11-01) uploaded them to
+results_headline/lookup_*.parquet. Keep them registered here until upstream
+adds the same names.
 
 Usage:
     # one-off query, pretty-printed
@@ -66,10 +72,22 @@ DATASETS: dict[str, str] = {
     "voter_roll_jhr_se16": f"{LAKE}/voter_rolls/jhr_se16_2026.parquet",
     "voter_roll_nsn_se15": f"{LAKE}/voter_rolls/nsn_se15_2023.parquet",
     "voter_roll_jhr_se15": f"{LAKE}/voter_rolls/jhr_se15_2022.parquet",
+    # MCP-only extension. Not in meco-front datasets.ts. Uploaded by
+    # electiondata-my/meco-etl 55c6098 (2026-11-01) under results_headline/.
+    # Non-lazy: small enough to materialise with --cache. SQL using these names
+    # does not run in the website Query Builder.
+    "lookup_candidate": f"{LAKE}/results_headline/lookup_candidate.parquet",
+    "lookup_coalition": f"{LAKE}/results_headline/lookup_coalition.parquet",
+    "lookup_coalition_succession": (f"{LAKE}/results_headline/lookup_coalition_succession.parquet"),
+    "lookup_dates": f"{LAKE}/results_headline/lookup_dates.parquet",
+    "lookup_party": f"{LAKE}/results_headline/lookup_party.parquet",
+    "lookup_party_succession": f"{LAKE}/results_headline/lookup_party_succession.parquet",
+    "lookup_prk": f"{LAKE}/results_headline/lookup_prk.parquet",
 }
 
 # Voter rolls run to ~22 million rows — always stream them over HTTP rather than
-# materialising. Mirrors LAZY_DATASETS in the electiondata-my/meco-front's datasets.ts.
+# materialising. Mirrors LAZY_DATASETS in electiondata-my/meco-front datasets.ts.
+# lookup_* tables are small and stay out of LAZY so --cache materialises them.
 LAZY = {name for name in DATASETS if name.startswith("voter_roll_")}
 
 
@@ -101,7 +119,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run SQL against the ElectionData.MY data lake via DuckDB.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Table names match copy-prompt.md. Run with --tables to list them.",
+        epilog=(
+            "Query Builder table names match copy-prompt.md. lookup_* tables are an "
+            "MCP extension (meco-etl 55c6098). Run with --tables to list them."
+        ),
     )
     parser.add_argument("sql", nargs="?", help="SQL to run; omit to read stdin")
     parser.add_argument("-f", "--file", help="read SQL from a file")
@@ -121,7 +142,12 @@ def main() -> int:
 
     if args.tables:
         for name, url in DATASETS.items():
-            marker = " (streamed, large)" if name in LAZY else ""
+            if name in LAZY:
+                marker = " (streamed, large)"
+            elif name.startswith("lookup_"):
+                marker = " (MCP extension; not in Query Builder)"
+            else:
+                marker = ""
             print(f"{name}{marker}\n    {url}")
         return 0
 

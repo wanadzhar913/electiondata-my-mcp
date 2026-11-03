@@ -3,6 +3,10 @@
 Update entries here when adding lake tables (see CONTRIBUTING.md). The bundled
 query guide remains the full schema reference; these strings are short hints
 with coverage dates and common pitfalls.
+
+Lookup tables are an MCP-only extension (meco-etl 55c6098). Column detail lives
+in prompts/lookup-tables-appendix.md. Do not copy them into the bundled
+upstream query-builder-prompt.md.
 """
 
 from __future__ import annotations
@@ -53,6 +57,58 @@ CORE_DATASETS: dict[str, tuple[str, str]] = {
     ),
 }
 
+# meco-etl 55c6098 (2026-11-01) uploaded these under results_headline/.
+# meco-front datasets.ts does not register them.
+MCP_LOOKUP_NOTE = (
+    "MCP-specific extension beyond upstream meco-front datasets.ts "
+    "(meco-etl 55c6098); queryable in this server only."
+)
+
+LOOKUP_DATASETS: dict[str, tuple[str, str]] = {
+    "lookup_candidate": (
+        "One row per candidate_uid: name, sex (M/F), ethnicity, and dob stored as "
+        "text (unknown parts are xx or xxxx, so this is not a DATE). " + MCP_LOOKUP_NOTE,
+        "Resolve candidate_uid to a stable name and date of birth; "
+        "join headline_ballots on candidate_uid.",
+    ),
+    "lookup_coalition": (
+        "Coalition dictionary: coalition_uid, code, English and Malay names, "
+        "year_start, and year_end (-1 if open-ended). " + MCP_LOOKUP_NOTE,
+        "Map coalition_uid or coalition codes to full names; prefer this over the "
+        "static coalition dictionary in the Query Builder prompt.",
+    ),
+    "lookup_coalition_succession": (
+        "Coalition lineage edges: predecessor_uid, successor_uid, type, year, and "
+        "notes (PERIKATAN to BN, BA to PR, PR to PH). " + MCP_LOOKUP_NOTE,
+        "Follow coalition replacements that share a numeric uid prefix.",
+    ),
+    "lookup_dates": (
+        "Polling dates for general and state elections (by-elections are "
+        "lookup_prk): state (Malaysia means federal), election_number, and date. "
+        + MCP_LOOKUP_NOTE,
+        "Look up a GE or SE polling date; pair election_number with state because "
+        "the same number repeats across states.",
+    ),
+    "lookup_party": (
+        "Party dictionary: party_uid, ballot code, English and Malay names, "
+        "year_formed, and year_end (-1 if still active). " + MCP_LOOKUP_NOTE,
+        "Map party_uid or party codes to full names; prefer this over the static "
+        "party dictionary in the Query Builder prompt.",
+    ),
+    "lookup_party_succession": (
+        "Party lineage edges: predecessor_uid, successor_uid, type "
+        "(replace, merge, absorb, splinter, split), year, and notes. " + MCP_LOOKUP_NOTE,
+        "Follow renames, mergers, absorptions, and splinters across party_uid values.",
+    ),
+    "lookup_prk": (
+        "By-elections (PRK): date, state, seat, trigger (death, resignation, "
+        "voided_by_court, and others), and notes. Historical seat spellings do "
+        "not always match headline_ballots. " + MCP_LOOKUP_NOTE,
+        "Explain why a by-election was held; join headline tables on date, state, "
+        "and seat where election = 'BY-ELECTION'.",
+    ),
+}
+
 
 def _snapshot_suffix(name: str, prefix: str) -> str | None:
     if not name.startswith(prefix):
@@ -63,6 +119,8 @@ def _snapshot_suffix(name: str, prefix: str) -> str | None:
 def dataset_description(name: str) -> str:
     if name in CORE_DATASETS:
         return CORE_DATASETS[name][0]
+    if name in LOOKUP_DATASETS:
+        return LOOKUP_DATASETS[name][0]
 
     suffix = _snapshot_suffix(name, "saluran_ballots_")
     if suffix is not None:
@@ -88,6 +146,8 @@ def dataset_description(name: str) -> str:
 def dataset_use_for(name: str) -> str:
     if name in CORE_DATASETS:
         return CORE_DATASETS[name][1]
+    if name in LOOKUP_DATASETS:
+        return LOOKUP_DATASETS[name][1]
 
     if name.startswith("saluran_ballots_"):
         return (

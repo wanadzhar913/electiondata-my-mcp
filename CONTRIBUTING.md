@@ -14,7 +14,7 @@ This server covers **the public Parquet lake only**. It needs no API key and no 
 
 Good contributions:
 
-- Keep `DATASETS` in sync when the lake or the [Query Builder `datasets.ts`](https://github.com/electiondata-my/meco-front/blob/main/src/components/tools/query-builder/datasets.ts) gains a table.
+- Keep `DATASETS` in sync when the lake or the [Query Builder `datasets.ts`](https://github.com/electiondata-my/meco-front/blob/main/src/components/tools/query-builder/datasets.ts) gains a table. The `lookup_*` tables are an MCP extension ([meco-etl 55c6098](https://github.com/electiondata-my/meco-etl/commit/55c6098)) and stay registered even though `datasets.ts` does not list them yet.
 - Tighten the SQL safety rules, or fix a false positive in `query_validator.py`.
 - Add or clarify MCP tools, resources, or the `build_election_query` prompt without changing the lake-only scope.
 - Refresh the bundled Query Builder prompt when upstream `copy-prompt.md` changes in a way that matters offline.
@@ -138,11 +138,11 @@ Point a client at the checkout instead of PyPI — the same block works in Claud
 
 ### New or renamed lake table
 
-1. Confirm the name and URL in upstream [`datasets.ts`](https://github.com/electiondata-my/meco-front/blob/main/src/components/tools/query-builder/datasets.ts). That file is the source of truth.
+1. Confirm the name and URL in upstream [`datasets.ts`](https://github.com/electiondata-my/meco-front/blob/main/src/components/tools/query-builder/datasets.ts). That file is the source of truth for Query Builder tables. `lookup_*` is the exception: those files are on the lake via [meco-etl 55c6098](https://github.com/electiondata-my/meco-etl/commit/55c6098) and are documented as MCP-specific in `dataset_catalog.py`, `prompts/lookup-tables-appendix.md`, and the README. Do not add them to `prompts/query-builder-prompt.md`.
 2. Add or update the entry in `DATASETS` in `duckdb_lake.py`.
-3. Voter rolls stay streamed automatically if the name starts with `voter_roll_` (`LAZY`). Do not materialise them.
-4. Add or update metadata in `dataset_catalog.py` (`SNAPSHOT_LABELS` for new election snapshots, or `CORE_DATASETS` for non-suffixed tables).
-5. Update tests that hard-code the dataset count — `test_list_datasets_includes_known_table` currently expects 27 tables.
+3. Voter rolls stay streamed automatically if the name starts with `voter_roll_` (`LAZY`). Do not materialise them. Lookup tables stay out of `LAZY`.
+4. Add or update metadata in `dataset_catalog.py` (`SNAPSHOT_LABELS` for new election snapshots, `CORE_DATASETS` for other Query Builder tables, or `LOOKUP_DATASETS` for `lookup_*`).
+5. Update tests that hard-code the dataset count — `test_list_datasets_includes_known_table` and `test_catalog_covers_all_datasets` currently expect 34 tables.
 
 ### Validator or query safety
 

@@ -26,7 +26,20 @@ PROMPT_URL = (
     "main/src/components/tools/query-builder/copy-prompt.md"
 )
 BUNDLED_PROMPT_PATH = Path(__file__).parent / "prompts" / "query-builder-prompt.md"
+# MCP-only. Not part of upstream copy-prompt.md. See dataset_catalog.LOOKUP_DATASETS.
+LOOKUP_APPENDIX_PATH = Path(__file__).parent / "prompts" / "lookup-tables-appendix.md"
 DEFAULT_MAX_AGE = 24 * 60 * 60  # 24 hours
+
+
+def with_mcp_lookup_appendix(guide: str) -> str:
+    """Append the MCP-only lookup-table appendix to an upstream query guide.
+
+    The bundled query-builder-prompt.md file is left unchanged. Callers that
+    serve the guide to MCP clients should use this; the loader CLI still
+    prints the upstream prompt alone.
+    """
+    appendix = LOOKUP_APPENDIX_PATH.read_text(encoding="utf-8").strip()
+    return f"{guide.rstrip()}\n\n{appendix}\n"
 
 
 def default_cache_path() -> Path:

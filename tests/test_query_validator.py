@@ -105,6 +105,22 @@ def test_warns_on_state_election_without_state_filter() -> None:
     assert any("state filter" in warning.lower() for warning in result.warnings)
 
 
+def test_lookup_tables_are_allowlisted() -> None:
+    result = validate_query("SELECT party, party_name_en FROM lookup_party")
+    assert result.valid
+    assert result.tables == ["lookup_party"]
+
+
+def test_lookup_succession_does_not_match_the_shorter_name() -> None:
+    result = validate_query("SELECT predecessor_uid FROM lookup_party_succession LIMIT 5")
+    assert result.valid
+    assert result.tables == ["lookup_party_succession"]
+
+    coalition = validate_query("SELECT successor_uid FROM lookup_coalition_succession LIMIT 5")
+    assert coalition.valid
+    assert coalition.tables == ["lookup_coalition_succession"]
+
+
 def test_no_state_election_warning_when_state_present() -> None:
     result = validate_query(
         "SELECT seat FROM headline_stats WHERE election = 'SE-16' AND state = 'Johor' LIMIT 1",
