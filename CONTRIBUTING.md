@@ -14,7 +14,7 @@ This server covers **the public Parquet lake only**. It needs no API key and no 
 
 Good contributions:
 
-- Keep `DATASETS` in sync when the lake or the [Query Builder `datasets.ts`](https://github.com/electiondata-my/meco-front/blob/main/src/components/tools/query-builder/datasets.ts) gains a table.
+- Keep `DATASETS` in sync when the lake or the [Query Builder `datasets.ts`](https://github.com/electiondata-my/meco-front/blob/main/src/components/tools/query-builder/datasets.ts) gains a table. `scripts/check_upstream_drift.py` is the weekly check for that drift.
 - Tighten the SQL safety rules, or fix a false positive in `query_validator.py`.
 - Add or clarify MCP tools, resources, or the `build_election_query` prompt without changing the lake-only scope.
 - Refresh the bundled Query Builder prompt when upstream `copy-prompt.md` changes in a way that matters offline.
@@ -65,6 +65,12 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.11–3.14.
   `--no-cov` is required for the integration run: a handful of live tests will not meet the 80% gate. These tests spawn `python -m electiondata_my_mcp` and query `headline_stats` over HTTP; they are not the ElectionData.MY REST API.
 
   `tests/test_live_auth0_oauth.py` hits a real Auth0 tenant when `AUTH0_DOMAIN`, `AUTH0_CI_CLIENT_ID`, and `AUTH0_CI_CLIENT_SECRET` are set (repository secrets in CI). Setup steps and `MCP_OAUTH_*` mapping are in [docs/auth0.md](docs/auth0.md).
+
+  Check the Query Builder mirror against meco-front `main` (network; the same command the weekly workflow runs):
+
+  ```bash
+  uv run python scripts/check_upstream_drift.py
+  ```
 
 5. Install the pre-commit hooks
 
@@ -132,6 +138,8 @@ Point a client at the checkout instead of PyPI — the same block works in Claud
 | `docs/PRODUCTION.md` | Streamable HTTP deploy (uvicorn workers, CORS, allowlists, Docker). |
 | `docs/auth0.md` | Auth0 API, M2M app, `MCP_OAUTH_*` env vars, live OAuth integration test. |
 | `scripts/auth0_setup.py` | Optional example: provision Auth0 for CI/local tests via Auth0 MCP. |
+| `scripts/check_upstream_drift.py` | Compare `DATASETS` and the bundled query guide with meco-front `main`. |
+| `.github/workflows/upstream-drift.yml` | Weekly and manual upstream drift check. Pull-request CI leaves it alone. |
 | `tests/` | Pytest suite. `@pytest.mark.unit` (mocked; default CI). `@pytest.mark.integration` is opt-in (live stdio + lake). |
 
 ## Common changes
@@ -143,6 +151,7 @@ Point a client at the checkout instead of PyPI — the same block works in Claud
 3. Voter rolls stay streamed automatically if the name starts with `voter_roll_` (`LAZY`). Do not materialise them.
 4. Add or update metadata in `dataset_catalog.py` (`SNAPSHOT_LABELS` for new election snapshots, or `CORE_DATASETS` for non-suffixed tables).
 5. Update tests that hard-code the dataset count — `test_list_datasets_includes_known_table` currently expects 27 tables.
+6. Run `uv run python scripts/check_upstream_drift.py`. It fetches `datasets.ts` and `copy-prompt.md` from meco-front `main`. The same check runs every Monday in GitHub Actions, and from the Actions tab on demand. Pull-request CI stays unit-only.
 
 ### Validator or query safety
 
@@ -158,7 +167,22 @@ Keep the existing contract unless you are explicitly changing it, and cover the 
 
 ### Query Builder prompt
 
-`electiondata://query-guide` is loaded from upstream `copy-prompt.md`, cached for 24 hours under `$XDG_CACHE_HOME/electiondata-my-mcp/`, then the bundled copy. If you change fetch, cache, or fallback behaviour, update `tests/test_prompt_loader.py` and consider refreshing `src/electiondata_my_mcp/prompts/query-builder-prompt.md` so offline users see current schema notes.
+`electiondata://query-guide` is loaded from upstream `copy-prompt.md`, cached for 24 hours under `$XDG_CACHE_HOME/electiondata-my-mcp/`, then the bundled copy. If you change fetch, cache, or fallback behaviour, update `tests/test_prompt_loader.py` and consider refreshing `src/electiondata_my_mcp/prompts/query-builder-prompt.md` so offline users see current schema notes. The drift check fails when that bundled file differs from meco-front `main`.
+
+### Upstream drift
+
+`scripts/check_upstream_drift.py` compares two meco-front paths with this repo:
+
+- `src/components/tools/query-builder/datasets.ts` — table name and Parquet URL, against `DATASETS`
+- `src/components/tools/query-builder/copy-prompt.md` — against `src/electiondata_my_mcp/prompts/query-builder-prompt.md`
+
+`MCP_ONLY_TABLES` in the script is the allowlist of tables this server registers that `datasets.ts` does not. It is empty today. A `lookup_*` table taken from meco-etl, rather than the Query Builder, belongs on that list. The check fails when an allowlist name is missing from `DATASETS`, and when `datasets.ts` later publishes a name that is still on the list — remove it then, so URL changes are compared again.
+
+The lake manifest at `https://lake.electiondata.my/core-freshness.json` is not an input. It also lists Parquet files the Query Builder does not register.
+
+```bash
+uv run python scripts/check_upstream_drift.py
+```
 
 ## Pull requests
 

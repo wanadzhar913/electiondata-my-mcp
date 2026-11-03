@@ -21,6 +21,7 @@ An MCP server that lets an LLM answer questions about Malaysian elections by wri
   - [Safety model](#safety-model)
   - [Querying the lake directly](#querying-the-lake-directly)
   - [Relation to the ElectionData.MY API](#relation-to-the-electiondatamy-api)
+  - [Upstream drift check](#upstream-drift-check)
 - [Contributing](#contributing)
 - [License](#license)
 - [Acknowledgments](#acknowledgments)
@@ -241,6 +242,23 @@ df = connect().sql("SELECT * FROM headline_ballots LIMIT 10").df()
 ### Relation to the ElectionData.MY API
 
 The lake is for bulk and analytical work. For focused lookups — a candidate's history, a party's record in one state — the [v1 REST API](https://api.electiondata.my/v1) is the better fit; it needs an `ELECTIONDATAMY_API_KEY` and is covered by the `query-electiondatamy-api` skill in `.cursor/skills/`. This server deliberately covers only the lake, which needs no credentials.
+
+### Upstream drift check
+
+Two files in [meco-front](https://github.com/electiondata-my/meco-front) are the source of truth for this server:
+
+| Upstream | This repo |
+| --- | --- |
+| [`datasets.ts`](https://github.com/electiondata-my/meco-front/blob/main/src/components/tools/query-builder/datasets.ts) | `DATASETS` in [`duckdb_lake.py`](src/electiondata_my_mcp/duckdb_lake.py): table name, Parquet URL, and `voter_roll_*` kept lazy |
+| [`copy-prompt.md`](https://github.com/electiondata-my/meco-front/blob/main/src/components/tools/query-builder/copy-prompt.md) | bundled [`query-builder-prompt.md`](src/electiondata_my_mcp/prompts/query-builder-prompt.md) |
+
+[`scripts/check_upstream_drift.py`](scripts/check_upstream_drift.py) fetches both from `meco-front` `main` and prints a diff when the table map or the guide has diverged. Names in `MCP_ONLY_TABLES` in that script are tables this server registers on purpose when `datasets.ts` does not list them. GitHub Actions runs the check every Monday at 06:17 UTC and when a maintainer dispatches the workflow. Pull-request CI stays on the unit suite, the same way the live lake tests stay opt-in, because this job depends on the network.
+
+```bash
+uv run python scripts/check_upstream_drift.py
+```
+
+The pinned blob linked from [The DuckDB-WASM approach](#the-duckdb-wasm-approach) is [meco-front `e8f134a`](https://github.com/electiondata-my/meco-front/commit/e8f134aab0c2a9a20699c3c2b1f78c2bf733ede9) ("Add Johor SE-16 and GE-12 saluran data"), the Query Builder revision this mirror was last reviewed against. The scheduled check tracks `main`.
 
 ## Contributing
 

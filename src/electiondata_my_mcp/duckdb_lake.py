@@ -10,7 +10,8 @@ The lake is public — no API key, CORS open, HTTP range requests supported — 
 httpfs reads only the row groups and columns a query actually touches.
 
 Table name -> URL mapping mirrors src/components/tools/query-builder/datasets.ts,
-which is the source of truth. Update both together.
+which is the source of truth. Update both together. scripts/check_upstream_drift.py
+reports drift against meco-front main.
 
 Usage:
     # one-off query, pretty-printed
