@@ -29,14 +29,14 @@ An MCP server that lets an LLM answer questions about Malaysian elections by wri
 
 | Kind | Name | Purpose |
 | --- | --- | --- |
-| Tool | `get_query_guide` | Return the Query Builder schema and SQL rules; call this first. |
+| Tool | `get_query_guide` | Return the Query Builder schema and SQL rules, then an MCP-specific lookup-table appendix; call this first. |
 | Tool | `list_datasets` | Every lake table with URL, coverage/description, `use_for`, and whether it streams. |
 | Tool | `describe_dataset` | Column names and types for one table, plus the same coverage hints as `list_datasets`. |
 | Tool | `validate_sql` | Check a query against the safety rules without running it. |
 | Tool | `sample_dataset` | A few rows from a table, for shape-checking. |
 | Tool | `execute_query` | Run validated read-only SQL; returns columns, rows, and elapsed time. |
-| Resource | `electiondata://query-guide` | Schema and SQL rules from the [Query Builder](https://electiondata.my/query-builder/). |
-| Prompt | `build_election_query` | Loads the guide and asks for a single query answering a question. |
+| Resource | `electiondata://query-guide` | Schema and SQL rules from the [Query Builder](https://electiondata.my/query-builder/), plus the MCP-specific lookup-table appendix. |
+| Prompt | `build_election_query` | Loads the guide, including the lookup appendix, and asks for a single query answering a question. |
 
 ## Installation
 
@@ -194,10 +194,24 @@ sequenceDiagram
 
 Why this matters:
 
-- **SQL is portable in both directions.** The table names mirror [`datasets.ts`](https://github.com/electiondata-my/meco-front/blob/e8f134aab0c2a9a20699c3c2b1f78c2bf733ede9/src/components/tools/query-builder/datasets.ts) in the ElectionData.MY frontend, so a query the model writes here can be pasted into the site's Query Builder unchanged, and the site's published prompt and examples work here unchanged. The model gets the same mental model the website documents.
+- **SQL is portable for Query Builder tables.** Those table names mirror [`datasets.ts`](https://github.com/electiondata-my/meco-front/blob/e8f134aab0c2a9a20699c3c2b1f78c2bf733ede9/src/components/tools/query-builder/datasets.ts) in the ElectionData.MY frontend, so a query that uses only those names can be pasted into the site's Query Builder, and the site's published prompt and examples work here. The `lookup_*` tables below are the exception.
 - **Nothing is copied or mirrored.** Registering views rather than tables means the lake stays the single source of truth. A refreshed Parquet file is picked up on the next query.
 - **Only the bytes a query needs cross the network.** Parquet is columnar and `httpfs` speaks HTTP range requests, so a `SELECT seat, majority` touches those column chunks and skips the rest of the file. This is the same property that makes a 22-million-row voter roll queryable from a browser tab, and it is why this server needs no local storage.
-- **Voter rolls are never materialised.** `LAZY` marks the `voter_roll_*` tables, mirroring `LAZY_DATASETS` upstream; they always stream. Everything else can be materialised on demand with `--cache`, which trades freshness for repeat-query speed.
+- **Voter rolls are never materialised.** `LAZY` marks the `voter_roll_*` tables, mirroring `LAZY_DATASETS` upstream; they always stream. Everything else, including the lookup tables, can be materialised on demand with `--cache`, which trades freshness for repeat-query speed.
+
+### Lookup tables (MCP extension)
+
+These seven tables extend this server beyond upstream `datasets.ts`. [meco-etl commit 55c6098](https://github.com/electiondata-my/meco-etl/commit/55c6098) (2026-11-01) uploaded them under `results_headline/`. They are non-lazy. `get_query_guide` and `electiondata://query-guide` append [`lookup-tables-appendix.md`](src/electiondata_my_mcp/prompts/lookup-tables-appendix.md), which is marked MCP-specific. The bundled upstream copy `prompts/query-builder-prompt.md` is unchanged. Queries that reference `lookup_*` run here; the website Query Builder does not currently register these names.
+
+| Table | URL |
+| --- | --- |
+| `lookup_candidate` | https://lake.electiondata.my/results_headline/lookup_candidate.parquet |
+| `lookup_coalition` | https://lake.electiondata.my/results_headline/lookup_coalition.parquet |
+| `lookup_coalition_succession` | https://lake.electiondata.my/results_headline/lookup_coalition_succession.parquet |
+| `lookup_dates` | https://lake.electiondata.my/results_headline/lookup_dates.parquet |
+| `lookup_party` | https://lake.electiondata.my/results_headline/lookup_party.parquet |
+| `lookup_party_succession` | https://lake.electiondata.my/results_headline/lookup_party_succession.parquet |
+| `lookup_prk` | https://lake.electiondata.my/results_headline/lookup_prk.parquet |
 
 The one thing the browser cannot do is the reason this server exists: a WASM tab has no way to hand results to an MCP client. Here, the same queries run in-process and come back as structured tool results.
 

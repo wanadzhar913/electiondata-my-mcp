@@ -9,14 +9,41 @@ import pytest
 from electiondata_my_mcp import prompt_loader
 from electiondata_my_mcp.prompt_loader import (
     BUNDLED_PROMPT_PATH,
+    LOOKUP_APPENDIX_PATH,
     _is_fresh,
     _write_atomically,
     default_cache_path,
     load_prompt,
     main,
+    with_mcp_lookup_appendix,
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_lookup_appendix_stays_out_of_the_bundled_prompt() -> None:
+    bundled = BUNDLED_PROMPT_PATH.read_text(encoding="utf-8")
+    appendix = LOOKUP_APPENDIX_PATH.read_text(encoding="utf-8")
+    assert "MCP-specific appendix" in appendix
+    assert "55c6098" in appendix
+    for name in (
+        "lookup_candidate",
+        "lookup_coalition",
+        "lookup_coalition_succession",
+        "lookup_dates",
+        "lookup_party",
+        "lookup_party_succession",
+        "lookup_prk",
+    ):
+        assert f"`{name}`" in appendix
+    assert "MCP-specific appendix" not in bundled
+
+
+def test_with_mcp_lookup_appendix_appends_after_the_upstream_guide() -> None:
+    composed = with_mcp_lookup_appendix("upstream guide\n")
+    assert composed.startswith("upstream guide\n\n## MCP-specific appendix")
+    assert composed.endswith("\n")
+    assert "upstream guide" not in LOOKUP_APPENDIX_PATH.read_text(encoding="utf-8")
 
 
 def test_default_cache_path_uses_xdg_cache_home(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

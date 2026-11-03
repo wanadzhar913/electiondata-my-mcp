@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Register seven lake lookup tables (`lookup_candidate`, `lookup_coalition`, `lookup_coalition_succession`, `lookup_dates`, `lookup_party`, `lookup_party_succession`, `lookup_prk`) uploaded by [meco-etl 55c6098](https://github.com/electiondata-my/meco-etl/commit/55c6098). They extend this server beyond upstream `datasets.ts`. `get_query_guide` appends an MCP-specific appendix; the bundled Query Builder prompt is unchanged.
+
 ## 0.3.0 — 2026-10-03
 
 - Enrich `list_datasets` and `describe_dataset` with coverage dates, `use_for` hints, and pointers to `get_query_guide`. Add `dataset_catalog.py` as the metadata source for discovery tools. `validate_sql` / `execute_query` warn when a state-election filter (`election = 'SE-*'`) lacks a `state` filter on headline or demographics tables. [#18](https://github.com/wanadzhar913/electiondata-my-mcp/pull/18)

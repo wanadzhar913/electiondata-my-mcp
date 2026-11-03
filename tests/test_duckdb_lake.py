@@ -67,6 +67,8 @@ def test_main_lists_tables(capsys) -> None:
     output = capsys.readouterr().out
     assert "headline_stats" in output
     assert "voter_roll_ge15 (streamed, large)" in output
+    assert "lookup_party (MCP extension; not in Query Builder)" in output
+    assert "https://lake.electiondata.my/results_headline/lookup_party.parquet" in output
 
 
 @patch("electiondata_my_mcp.duckdb_lake.connect")

@@ -21,7 +21,7 @@ from starlette.responses import JSONResponse, Response
 from electiondata_my_mcp.dataset_catalog import dataset_description, dataset_use_for
 from electiondata_my_mcp.duckdb_lake import DATASETS, LAZY
 from electiondata_my_mcp.duckdb_pool import DuckDBPool, PoolTimeoutError, pool_from_env
-from electiondata_my_mcp.prompt_loader import load_prompt
+from electiondata_my_mcp.prompt_loader import load_prompt, with_mcp_lookup_appendix
 from electiondata_my_mcp.query_validator import validate_query
 from electiondata_my_mcp.settings import apply_cli_overrides
 
@@ -53,7 +53,9 @@ mcp = MCPServer(
     "electiondata-my-mcp",
     instructions=(
         "Query Malaysian election data from the ElectionData.MY public data lake "
-        "using DuckDB SQL. Read electiondata://query-guide before writing SQL."
+        "using DuckDB SQL. Read electiondata://query-guide before writing SQL. "
+        "That guide ends with an MCP-specific appendix for lookup_* tables "
+        "(meco-etl 55c6098), which the website Query Builder does not register."
     ),
     middleware=[log_timing],
 )
@@ -66,6 +68,10 @@ def _connection() -> Iterator[duckdb.DuckDBPyConnection]:
             yield con
     except PoolTimeoutError as error:
         raise ToolError("Too many concurrent lake queries; retry shortly.") from error
+
+
+def _guide() -> str:
+    return with_mcp_lookup_appendix(load_prompt())
 
 
 def _require_valid_query(sql: str) -> tuple[list[str], list[str]]:
@@ -90,11 +96,14 @@ def _serialize_rows(
 @mcp.resource(
     "electiondata://query-guide",
     name="query-guide",
-    description="ElectionData.MY Query Builder schema and SQL rules.",
+    description=(
+        "Query Builder schema and SQL rules, plus an MCP-specific appendix for "
+        "lookup_* tables (meco-etl 55c6098)."
+    ),
     mime_type="text/markdown",
 )
 def query_guide() -> str:
-    return load_prompt()
+    return _guide()
 
 
 @mcp.prompt(
@@ -102,7 +111,7 @@ def query_guide() -> str:
     description="Prepare the client to write DuckDB SQL for an election question.",
 )
 def build_election_query(question: str) -> list[UserMessage]:
-    guide = load_prompt()
+    guide = _guide()
     return [
         UserMessage(guide),
         UserMessage(
@@ -114,12 +123,13 @@ def build_election_query(question: str) -> list[UserMessage]:
 
 @mcp.tool()
 def get_query_guide() -> str:
-    """Return the ElectionData.MY Query Builder schema and SQL rules.
+    """Return the Query Builder schema and SQL rules, plus lookup tables.
 
-    This guide documents the lake tables, column schemas, and query safety rules.
-    Call this tool first to understand the available data and how to query it.
+    The body is the upstream Query Builder guide. This server appends an
+    MCP-specific appendix for lookup_* tables (meco-etl 55c6098), which
+    datasets.ts does not register. Call this tool first before writing SQL.
     """
-    return load_prompt()
+    return _guide()
 
 
 @mcp.tool()
@@ -127,8 +137,9 @@ def list_datasets() -> list[dict[str, Any]]:
     """List lake datasets with coverage hints and whether each is streamed over HTTP.
 
     Each entry includes description (coverage dates and pitfalls) and use_for
-    (typical questions). For full column schemas and join rules, call get_query_guide
-    before writing SQL.
+    (typical questions). lookup_* entries are an MCP-specific extension
+    (meco-etl 55c6098) and are not in the website Query Builder. For full
+    column schemas and join rules, call get_query_guide before writing SQL.
     """
     return [
         {
