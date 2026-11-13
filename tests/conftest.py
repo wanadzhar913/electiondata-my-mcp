@@ -31,12 +31,13 @@ def mock_duckdb_connection() -> MagicMock:
 
     query_result = MagicMock()
     query_result.description = [("seat",), ("majority",)]
-    query_result.fetchmany.return_value = [
+    query_rows = [
         ("P.001 Wellesley North", 0),
         ("P.029 Kemaman", 0),
     ]
+    query_result.limit.return_value.fetchall.return_value = query_rows
     query_result.columns = ["seat", "majority"]
-    query_result.fetchall.return_value = query_result.fetchmany.return_value
+    query_result.fetchall.return_value = query_rows
 
     def sql_side_effect(query: str) -> MagicMock:
         if query.startswith("DESCRIBE"):

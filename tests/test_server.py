@@ -115,7 +115,7 @@ def test_execute_query_returns_rows(patched_connection: MagicMock) -> None:
 def test_execute_query_marks_truncated_results(patched_connection: MagicMock) -> None:
     query_result = MagicMock()
     query_result.description = [("seat",), ("majority",)]
-    query_result.fetchmany.return_value = [
+    query_result.limit.return_value.fetchall.return_value = [
         ("a", 1),
         ("b", 2),
         ("c", 3),
@@ -126,6 +126,36 @@ def test_execute_query_marks_truncated_results(patched_connection: MagicMock) ->
     result = execute_query("SELECT seat, majority FROM headline_stats LIMIT 3", max_rows=2)
     assert result["row_count"] == 2
     assert result["truncated"] is True
+    query_result.limit.assert_called_once_with(3)
+
+
+def test_execute_query_reads_duckdb_2_relations(monkeypatch: pytest.MonkeyPatch) -> None:
+    """DuckDB 2 relations have no fetchmany(); truncation must still be detected."""
+
+    def connect() -> duckdb.DuckDBPyConnection:
+        connection = duckdb.connect()
+        connection.execute(
+            "CREATE TABLE headline_stats AS SELECT range AS seat, range AS majority FROM range(5)"
+        )
+        return connection
+
+    monkeypatch.setattr(server, "_pool", DuckDBPool(size=1, connect_fn=connect))
+
+    truncated = execute_query("SELECT seat, majority FROM headline_stats", max_rows=2)
+    assert truncated["columns"] == ["seat", "majority"]
+    assert truncated["row_count"] == 2
+    assert truncated["truncated"] is True
+    assert truncated["rows"] == [
+        {"seat": 0, "majority": 0},
+        {"seat": 1, "majority": 1},
+    ]
+
+    exact = execute_query(
+        "SELECT seat, majority FROM headline_stats LIMIT 2",
+        max_rows=2,
+    )
+    assert exact["row_count"] == 2
+    assert exact["truncated"] is False
 
 
 def test_execute_query_handles_none_result(patched_connection: MagicMock) -> None:

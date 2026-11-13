@@ -42,9 +42,9 @@ def test_connect_is_lazy_and_once() -> None:
     connect_fn.assert_not_called()
 
     with pool.acquire() as first:
-        first.sql("SELECT count(*) FROM t").fetchone()
+        first.sql("SELECT count(*) FROM t").fetchall()
     with pool.acquire() as second:
-        second.sql("SELECT count(*) FROM t").fetchone()
+        second.sql("SELECT count(*) FROM t").fetchall()
 
     connect_fn.assert_called_once()
     assert pool.created == 1
@@ -57,8 +57,8 @@ def test_pool_creates_up_to_size_cursors() -> None:
         with pool.acquire() as b:
             assert a is not b
             assert pool.created == 2
-            a.sql("SELECT 1").fetchone()
-            b.sql("SELECT 1").fetchone()
+            a.sql("SELECT 1").fetchall()
+            b.sql("SELECT 1").fetchall()
 
 
 def test_acquire_returns_cursor_after_exception() -> None:
@@ -67,7 +67,7 @@ def test_acquire_returns_cursor_after_exception() -> None:
         with pool.acquire():
             raise RuntimeError("boom")
     with pool.acquire() as con:
-        assert con.sql("SELECT count(*) FROM t").fetchone() == (1000,)
+        assert con.sql("SELECT count(*) FROM t").fetchall() == [(1000,)]
 
 
 def test_checkout_times_out_when_pool_is_busy() -> None:
@@ -99,7 +99,7 @@ def test_concurrent_queries_share_one_database() -> None:
     def work() -> None:
         try:
             with pool.acquire() as con:
-                count = con.sql("SELECT count(*) FROM t").fetchone()[0]
+                count = con.sql("SELECT count(*) FROM t").fetchall()[0][0]
                 results.append(count)
         except BaseException as error:
             errors.append(error)

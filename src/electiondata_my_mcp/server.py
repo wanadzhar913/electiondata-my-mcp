@@ -80,7 +80,9 @@ def _serialize_rows(
     max_rows: int,
 ) -> tuple[list[str], list[dict[str, Any]], bool]:
     columns = [column[0] for column in result.description]
-    fetched = result.fetchmany(max_rows + 1)
+    # Relations in DuckDB 2 no longer implement fetchmany(); limit() is the
+    # supported way to stop after max_rows + 1 on both 1.x and 2.x.
+    fetched = result.limit(max_rows + 1).fetchall()
     truncated = len(fetched) > max_rows
     rows = fetched[:max_rows]
     serialized = [dict(zip(columns, row, strict=True)) for row in rows]
