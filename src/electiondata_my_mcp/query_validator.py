@@ -69,9 +69,114 @@ class ValidationResult:
     warnings: list[str] = field(default_factory=list)
 
 
+def _token_boundary(sql: str, index: int) -> bool:
+    if index == 0:
+        return True
+    previous = sql[index - 1]
+    return not (previous.isalnum() or previous == "_")
+
+
+def _copy_quoted(sql: str, index: int, out: list[str], *, backslash: bool) -> int:
+    """Copy one `'...'` or `"..."` literal, starting at its opening quote.
+
+    Standard strings and quoted identifiers escape a quote by doubling it.
+    ``E'...'`` strings also escape with a backslash, including ``\\'``.
+    """
+    quote = sql[index]
+    out.append(quote)
+    index += 1
+    limit = len(sql)
+    while index < limit:
+        char = sql[index]
+        if backslash and char == "\\":
+            out.append(char)
+            if index + 1 < limit:
+                out.append(sql[index + 1])
+                index += 2
+            else:
+                index += 1
+            continue
+        out.append(char)
+        if char == quote:
+            if index + 1 < limit and sql[index + 1] == quote:
+                out.append(quote)
+                index += 2
+                continue
+            return index + 1
+        index += 1
+    return index
+
+
+def _dollar_literal_end(sql: str, index: int) -> int | None:
+    """Return the index after a ``$tag$...$tag$`` literal, or None.
+
+    Tags match DuckDB: empty, or a letter/underscore plus word characters
+    (Unicode included). An opening delimiter with no closer consumes the
+    rest; the statement check still sees any ``;`` because the body is copied.
+    """
+    if sql[index] != "$":
+        return None
+    cursor = index + 1
+    if cursor < len(sql) and (sql[cursor].isalpha() or sql[cursor] == "_"):
+        cursor += 1
+        while cursor < len(sql) and (sql[cursor].isalnum() or sql[cursor] == "_"):
+            cursor += 1
+    if cursor >= len(sql) or sql[cursor] != "$":
+        return None
+    tag = sql[index : cursor + 1]
+    close = sql.find(tag, cursor + 1)
+    if close == -1:
+        return len(sql)
+    return close + len(tag)
+
+
 def _strip_comments(sql: str) -> str:
-    without_block = re.sub(r"/\*.*?\*/", " ", sql, flags=re.DOTALL)
-    return re.sub(r"--[^\n]*", " ", without_block)
+    """Drop DuckDB comments without eating text inside literals.
+
+    ``/*`` and ``--`` inside a string or quoted identifier are data. Stripping
+    them as comments hides a later statement from the checks below while
+    ``DuckDBPyConnection.sql`` still runs it.
+    """
+    out: list[str] = []
+    index = 0
+    limit = len(sql)
+    while index < limit:
+        if sql.startswith("--", index):
+            newline = sql.find("\n", index + 2)
+            out.append(" ")
+            if newline == -1:
+                break
+            index = newline
+            continue
+        if sql.startswith("/*", index):
+            end = sql.find("*/", index + 2)
+            out.append(" ")
+            if end == -1:
+                break
+            index = end + 2
+            continue
+        char = sql[index]
+        escape_string = (
+            char in "Ee"
+            and index + 1 < limit
+            and sql[index + 1] == "'"
+            and _token_boundary(sql, index)
+        )
+        if escape_string:
+            out.append(char)
+            index = _copy_quoted(sql, index + 1, out, backslash=True)
+            continue
+        if char in "'\"":
+            index = _copy_quoted(sql, index, out, backslash=False)
+            continue
+        dollar_end = _dollar_literal_end(sql, index)
+        if dollar_end is not None:
+            out.append(sql[index:dollar_end])
+            index = dollar_end
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
 
 
 def _normalize(sql: str) -> str:

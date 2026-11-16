@@ -92,6 +92,54 @@ def test_strips_sql_comments() -> None:
     assert result.tables == ["headline_stats"]
 
 
+def test_comment_text_is_not_executed() -> None:
+    sql = "SELECT seat FROM headline_stats -- ; COPY (SELECT 1) TO '/tmp/x'\nLIMIT 1"
+    result = validate_query(sql)
+    assert result.valid
+    assert result.tables == ["headline_stats"]
+
+
+def test_literals_that_look_like_comments_stay_one_statement() -> None:
+    sql = (
+        "SELECT seat FROM headline_stats "
+        "WHERE note = '/* literal */' "
+        "AND tag = $$/*$$ "
+        r"AND name = e'/*\'' "
+        'AND alias = "/*"'
+    )
+    result = validate_query(sql)
+    assert result.valid, result.errors
+    assert result.tables == ["headline_stats"]
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT seat FROM headline_stats WHERE note = '/*'; "
+        "COPY (SELECT 'x') TO '/tmp/x'; SELECT '*/'",
+        "SELECT seat FROM headline_stats WHERE note = '--'; COPY (SELECT 'x') TO '/tmp/x'",
+        "SELECT seat FROM headline_stats WHERE note = $$/*$$; "
+        "COPY (SELECT 'x') TO '/tmp/x'; SELECT $$*/$$",
+        "SELECT seat FROM headline_stats WHERE note = $Ü$/*$Ü$; "
+        "COPY (SELECT 'x') TO '/tmp/x'; SELECT $Ü$*/$Ü$",
+        "SELECT seat FROM headline_stats WHERE note = 'it''s /*'; "
+        "COPY (SELECT 'x') TO '/tmp/x'; SELECT '*/'",
+        'SELECT seat FROM headline_stats AS "/*"; '
+        "COPY (SELECT 'x') TO '/tmp/x'; SELECT seat FROM headline_stats AS \"*/\"",
+        r"SELECT seat FROM headline_stats WHERE note = E'foo\'/*'; "
+        "COPY (SELECT 'x') TO '/tmp/x'; SELECT '*/'",
+        "SELECT seat FROM headline_stats WHERE note = E'/*'; "
+        "SELECT * FROM read_csv('/tmp/x.csv'); SELECT E'*/'",
+    ],
+)
+def test_rejects_statement_hidden_in_a_literal(sql: str) -> None:
+    result = validate_query(sql)
+    assert not result.valid
+    assert any(
+        "single SQL statement" in error or error.startswith("Forbidden") for error in result.errors
+    )
+
+
 def test_referenced_tables_preserves_order() -> None:
     sql = "SELECT * FROM saluran_stats_ge15 JOIN saluran_ballots_ge15 USING (seat)"
     assert referenced_tables(sql) == ["saluran_stats_ge15", "saluran_ballots_ge15"]
