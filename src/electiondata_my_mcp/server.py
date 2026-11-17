@@ -75,11 +75,31 @@ def _require_valid_query(sql: str) -> tuple[list[str], list[str]]:
     return result.tables, result.warnings
 
 
+def _column_names(names: list[str]) -> list[str]:
+    """Return unique column names, leaving names that appear once unchanged.
+
+    DuckDB labels ``b.election`` and ``s.election`` both as ``election``. Row
+    dicts are keyed by that label, so a repeated name kept only the last value
+    and dropped the earlier column.
+    """
+    used: set[str] = set()
+    unique: list[str] = []
+    for name in names:
+        candidate = name
+        suffix = 2
+        while candidate in used:
+            candidate = f"{name}_{suffix}"
+            suffix += 1
+        used.add(candidate)
+        unique.append(candidate)
+    return unique
+
+
 def _serialize_rows(
     result: duckdb.DuckDBPyRelation,
     max_rows: int,
 ) -> tuple[list[str], list[dict[str, Any]], bool]:
-    columns = [column[0] for column in result.description]
+    columns = _column_names([column[0] for column in result.description])
     fetched = result.fetchmany(max_rows + 1)
     truncated = len(fetched) > max_rows
     rows = fetched[:max_rows]

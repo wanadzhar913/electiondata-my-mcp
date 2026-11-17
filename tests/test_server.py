@@ -14,6 +14,7 @@ from electiondata_my_mcp import server
 from electiondata_my_mcp.duckdb_pool import DuckDBPool, PoolTimeoutError
 from electiondata_my_mcp.server import (
     ABSOLUTE_MAX_ROWS,
+    _column_names,
     build_election_query,
     describe_dataset,
     execute_query,
@@ -110,6 +111,43 @@ def test_execute_query_returns_rows(patched_connection: MagicMock) -> None:
     assert result["row_count"] == 2
     assert result["truncated"] is False
     assert "elapsed_ms" in result
+
+
+def test_column_names_suffix_only_duplicates() -> None:
+    assert _column_names(["election", "votes", "election", "election_2"]) == [
+        "election",
+        "votes",
+        "election_2",
+        "election_2_2",
+    ]
+
+
+def test_execute_query_keeps_values_when_join_columns_share_a_name() -> None:
+    def connect() -> duckdb.DuckDBPyConnection:
+        connection = duckdb.connect()
+        connection.execute(
+            "CREATE TABLE headline_ballots AS SELECT 1 AS seat, 'GE-14' AS election, 99 AS votes"
+        )
+        connection.execute(
+            "CREATE TABLE headline_stats AS SELECT 1 AS seat, 'GE-15' AS election, 10 AS votes"
+        )
+        return connection
+
+    server._pool = DuckDBPool(connect_fn=connect)
+    result = execute_query(
+        """
+        SELECT b.election, s.election, b.votes, s.votes
+        FROM headline_ballots b
+        JOIN headline_stats s ON b.seat = s.seat
+        """,
+        max_rows=10,
+    )
+
+    assert result["columns"] == ["election", "election_2", "votes", "votes_2"]
+    assert result["rows"] == [
+        {"election": "GE-14", "election_2": "GE-15", "votes": 99, "votes_2": 10}
+    ]
+    assert result["truncated"] is False
 
 
 def test_execute_query_marks_truncated_results(patched_connection: MagicMock) -> None:
