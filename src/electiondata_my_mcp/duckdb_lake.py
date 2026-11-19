@@ -34,7 +34,12 @@ Requires: pip install duckdb
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+from urllib.parse import urlsplit, urlunsplit
 
 LAKE = "https://lake.electiondata.my"
 
@@ -72,6 +77,81 @@ DATASETS: dict[str, str] = {
 # materialising. Mirrors LAZY_DATASETS in the electiondata-my/meco-front's datasets.ts.
 LAZY = {name for name in DATASETS if name.startswith("voter_roll_")}
 
+# DuckDB copies these into the http_proxy setting at duckdb.connect() time.
+# A URL with userinfo is stored verbatim and repeated in the parse error
+# ("Failed to parse http_proxy 'http://user:password@host:port'"), and
+# current_setting('http_proxy') returns it. Which name is consulted depends on
+# the DuckDB version, so every common spelling is covered.
+_PROXY_ENV_VARS = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+)
+_proxy_env_lock = threading.Lock()
+
+
+def proxy_url_without_userinfo(value: str) -> str | None:
+    """Return ``value`` without username or password.
+
+    ``None`` means ``value`` has no userinfo and must be left unchanged. An
+    empty string means the value contains ``@`` but is not a proxy URL we can
+    rebuild safely; the caller drops it for the ``duckdb.connect()`` call
+    instead of handing the secret to DuckDB.
+    """
+    raw = value.strip()
+    if "@" not in raw:
+        return None
+
+    if "://" in raw:
+        parts = urlsplit(raw)
+        if parts.username is None and parts.password is None:
+            return None
+        host = parts.hostname
+        if not host:
+            return ""
+        netloc = f"[{host}]" if ":" in host else host
+        if parts.port is not None:
+            netloc = f"{netloc}:{parts.port}"
+        return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+    _userinfo, separator, hostport = raw.rpartition("@")
+    if not separator or not hostport or any(char in hostport for char in " /\\"):
+        return ""
+    return hostport
+
+
+@contextmanager
+def _hide_proxy_userinfo() -> Iterator[None]:
+    """Hide proxy credentials from ``duckdb.connect()`` only.
+
+    DuckDB snapshots the proxy environment when the connection is opened and
+    does not read it again. The process environment is restored afterwards so
+    other clients (for example the OAuth JWKS fetch) keep using the original
+    proxy URL.
+    """
+    with _proxy_env_lock:
+        saved: dict[str, str] = {}
+        try:
+            for name in _PROXY_ENV_VARS:
+                current = os.environ.get(name)
+                if current is None:
+                    continue
+                stripped = proxy_url_without_userinfo(current)
+                if stripped is None or stripped == current:
+                    continue
+                saved[name] = current
+                if stripped == "":
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = stripped
+            yield
+        finally:
+            for name, original in saved.items():
+                os.environ[name] = original
+
 
 def connect(db_path: str = ":memory:", cache: bool = False):
     """Return a DuckDB connection with every lake dataset registered.
@@ -79,10 +159,19 @@ def connect(db_path: str = ":memory:", cache: bool = False):
     With cache=True the non-voter-roll tables are materialised into db_path on
     first use, so later queries read from disk instead of the network. Pass a
     real file path for that to persist across runs.
+
+    Proxy userinfo is hidden from this connection. DuckDB would otherwise copy
+    ``HTTP_PROXY`` into ``http_proxy`` and return the password from
+    ``current_setting`` and from the error it raises for a URL it cannot parse.
+    The process environment is restored after the connection opens.
     """
     import duckdb
 
-    con = duckdb.connect(db_path)
+    # Snapshot happens inside duckdb.connect(). Hide userinfo only for that
+    # call: a password in HTTP_PROXY is otherwise stored in http_proxy and
+    # echoed by current_setting() and by DuckDB's parse error.
+    with _hide_proxy_userinfo():
+        con = duckdb.connect(db_path)
     con.execute("INSTALL httpfs; LOAD httpfs;")
 
     existing = {row[0] for row in con.execute("SHOW TABLES").fetchall()}

@@ -1,14 +1,134 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from unittest.mock import MagicMock, patch
 
+import duckdb
 import pytest
 
-from electiondata_my_mcp.duckdb_lake import DATASETS, LAZY, connect, main
+from electiondata_my_mcp.duckdb_lake import (
+    DATASETS,
+    LAZY,
+    _hide_proxy_userinfo,
+    connect,
+    main,
+    proxy_url_without_userinfo,
+)
 
 pytestmark = pytest.mark.unit
+
+_PROXY_WITH_PASSWORD = "http://proxyuser:s3cret-password@proxy.example:8080"
+_PROXY_WITHOUT_PASSWORD = "http://proxy.example:8080"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("http://proxy.example:8080", None),
+        ("proxy.example:8080", None),
+        (_PROXY_WITH_PASSWORD, _PROXY_WITHOUT_PASSWORD),
+        ("http://proxyuser:s3cret-password@proxy.example:8080/", _PROXY_WITHOUT_PASSWORD + "/"),
+        ("https://proxyuser:s3cret-password@proxy.example:8080", "https://proxy.example:8080"),
+        ("proxyuser:s3cret-password@proxy.example:8080", "proxy.example:8080"),
+        ("http://proxyuser:s3cret-password@[2001:db8::1]:8080", "http://[2001:db8::1]:8080"),
+        ("http://user:p%40ss@proxy.example:8080", _PROXY_WITHOUT_PASSWORD),
+        ("http://proxy.example:8080/a@b", None),
+        ("http://user:pass@", ""),
+        ("not a proxy @ all", ""),
+    ],
+)
+def test_proxy_url_without_userinfo(value: str, expected: str | None) -> None:
+    assert proxy_url_without_userinfo(value) == expected
+
+
+def test_connect_hides_proxy_userinfo_from_duckdb() -> None:
+    seen: dict[str, str | None] = {}
+
+    def fake_connect(db_path: str = ":memory:") -> MagicMock:
+        seen["http_proxy"] = os.environ.get("HTTP_PROXY")
+        seen["http_proxy_lower"] = os.environ.get("http_proxy")
+        connection = MagicMock()
+        connection.execute.return_value.fetchall.return_value = []
+        return connection
+
+    with patch.dict(
+        os.environ,
+        {"HTTP_PROXY": _PROXY_WITH_PASSWORD, "http_proxy": _PROXY_WITH_PASSWORD},
+    ):
+        with patch("duckdb.connect", fake_connect):
+            connect()
+        assert os.environ["HTTP_PROXY"] == _PROXY_WITH_PASSWORD
+        assert os.environ["http_proxy"] == _PROXY_WITH_PASSWORD
+
+    assert seen["http_proxy"] == _PROXY_WITHOUT_PASSWORD
+    assert seen["http_proxy_lower"] == _PROXY_WITHOUT_PASSWORD
+    assert "s3cret-password" not in (seen["http_proxy"] or "")
+
+
+def test_connect_leaves_proxy_without_userinfo_unchanged() -> None:
+    seen: dict[str, str | None] = {}
+
+    def fake_connect(db_path: str = ":memory:") -> MagicMock:
+        seen["http_proxy"] = os.environ.get("HTTP_PROXY")
+        connection = MagicMock()
+        connection.execute.return_value.fetchall.return_value = []
+        return connection
+
+    with patch.dict(os.environ, {"HTTP_PROXY": _PROXY_WITHOUT_PASSWORD}):
+        with patch("duckdb.connect", fake_connect):
+            connect()
+        assert os.environ["HTTP_PROXY"] == _PROXY_WITHOUT_PASSWORD
+
+    assert seen["http_proxy"] == _PROXY_WITHOUT_PASSWORD
+
+
+def test_connect_drops_unparseable_proxy_value() -> None:
+    seen: dict[str, bool] = {}
+
+    def fake_connect(db_path: str = ":memory:") -> MagicMock:
+        seen["present"] = "HTTP_PROXY" in os.environ
+        connection = MagicMock()
+        connection.execute.return_value.fetchall.return_value = []
+        return connection
+
+    with patch.dict(os.environ, {"HTTP_PROXY": "not a proxy @ all"}):
+        with patch("duckdb.connect", fake_connect):
+            connect()
+        assert os.environ["HTTP_PROXY"] == "not a proxy @ all"
+
+    assert seen["present"] is False
+
+
+def test_connect_restores_proxy_env_when_duckdb_connect_fails() -> None:
+    def fake_connect(db_path: str = ":memory:") -> None:
+        assert os.environ["HTTP_PROXY"] == _PROXY_WITHOUT_PASSWORD
+        raise RuntimeError("boom")
+
+    with patch.dict(os.environ, {"HTTP_PROXY": _PROXY_WITH_PASSWORD}):
+        with patch("duckdb.connect", fake_connect), pytest.raises(RuntimeError, match="boom"):
+            connect()
+        assert os.environ["HTTP_PROXY"] == _PROXY_WITH_PASSWORD
+
+
+def test_duckdb_setting_does_not_contain_proxy_password() -> None:
+    """The password must not be readable after the connection is opened.
+
+    DuckDB 1.5 and 2 both copy HTTP_PROXY into http_proxy at connect() time.
+    execute_query returns current_setting('http_proxy') and repeats the same
+    string in DuckDB's parse error.
+    """
+    with patch.dict(os.environ, {"HTTP_PROXY": _PROXY_WITH_PASSWORD}):
+        with _hide_proxy_userinfo():
+            connection = duckdb.connect()
+        assert os.environ["HTTP_PROXY"] == _PROXY_WITH_PASSWORD
+
+    value = connection.execute("SELECT current_setting('http_proxy')").fetchone()[0]
+    assert "s3cret-password" not in value
+    assert "proxyuser" not in value
+    if value:
+        assert value == _PROXY_WITHOUT_PASSWORD
 
 
 @patch("duckdb.connect")

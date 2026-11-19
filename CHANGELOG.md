@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Security:** DuckDB copies `HTTP_PROXY` into the `http_proxy` setting, including any username and password. `execute_query` then returns that password from `current_setting('http_proxy')`, and a proxy URL DuckDB cannot parse is repeated in the query error. `connect()` now opens DuckDB with userinfo removed from the proxy variables and restores the process environment afterwards. The host and port are unchanged, so a proxy with no credentials still works.
+
 ## 0.3.0 — 2026-10-03
 
 - Enrich `list_datasets` and `describe_dataset` with coverage dates, `use_for` hints, and pointers to `get_query_guide`. Add `dataset_catalog.py` as the metadata source for discovery tools. `validate_sql` / `execute_query` warn when a state-election filter (`election = 'SE-*'`) lacks a `state` filter on headline or demographics tables. [#18](https://github.com/wanadzhar913/electiondata-my-mcp/pull/18)
