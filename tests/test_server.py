@@ -44,7 +44,7 @@ def patched_connection(mock_duckdb_connection: MagicMock) -> MagicMock:
 
 def test_list_datasets_includes_known_table() -> None:
     datasets = list_datasets()
-    assert len(datasets) == 27
+    assert len(datasets) == 30
     headline_stats = next(item for item in datasets if item["name"] == "headline_stats")
     assert headline_stats["streamed"] is False
     assert "GE-01" in headline_stats["description"]

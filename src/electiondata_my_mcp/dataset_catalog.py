@@ -16,13 +16,14 @@ SNAPSHOT_LABELS: dict[str, str] = {
     "ge12": "GE-12 (8 March 2008)",
     "jhr_se16": "Johor SE-16 (11 Jul 2026)",
     "nsn_se16": "Negeri Sembilan SE-16 (1 Aug 2026)",
+    "mlk_se16": "Melaka SE-16 (14 Nov 2026)",
     "nsn_se15": "Negeri Sembilan SE-15 (2023)",
     "jhr_se15": "Johor SE-15 (2022)",
 }
 
 STATE_ELECTION_TRAP = (
     "If filtering election = 'SE-*', also filter state "
-    "(e.g. SE-16 includes both Johor and Negeri Sembilan)."
+    "(e.g. SE-16 includes Johor, Negeri Sembilan, and Melaka)."
 )
 
 VOTER_ROLL_LIMIT_NOTE = "Queries must include LIMIT ≤10000."
@@ -30,25 +31,29 @@ VOTER_ROLL_LIMIT_NOTE = "Queries must include LIMIT ≤10000."
 CORE_DATASETS: dict[str, tuple[str, str]] = {
     "headline_ballots": (
         "Candidate results; coverage GE-01 through GE-15 and all state elections "
-        "through JHR/NSN SE-16 (2026). " + STATE_ELECTION_TRAP,
+        "through Johor, Negeri Sembilan, and Melaka SE-16 (2026). " + STATE_ELECTION_TRAP,
         "Every contest and candidate: votes, parties, results.",
     ),
     "headline_stats": (
         "Seat statistics; coverage GE-01 through GE-15 and all state elections "
-        "through JHR/NSN SE-16 (2026). " + STATE_ELECTION_TRAP,
+        "through Johor, Negeri Sembilan, and Melaka SE-16 (2026). " + STATE_ELECTION_TRAP,
         "Electorate and turnout per seat: voters_total is registered voters as of that election.",
     ),
     "voter_demographics": (
-        "Seat-level demographics (sex, age, ethnicity); GE-13, GE-14, GE-15 nationwide, "
-        "plus Johor SE-15/SE-16 and Negeri Sembilan SE-16. " + STATE_ELECTION_TRAP,
+        "Seat-level demographics (sex, age, ethnicity, voter type); "
+        "GE-12 through GE-15 nationwide, plus DUN seats for state elections since "
+        "Sabah SE-14 (2020), including Johor, Negeri Sembilan, and Melaka SE-16. "
+        + STATE_ELECTION_TRAP,
         "Seat-level voter counts by demographic column (not multi-dimension cross-tabs).",
     ),
     "voter_demographics_sarawak": (
-        "Sarawak seat demographics with Sarawak ethnic groups; GE-13, GE-14, GE-15.",
+        "Sarawak seat demographics with Sarawak ethnic groups; GE-12 through GE-15, "
+        "plus Sarawak SE-12 (2021).",
         "Sarawak-only seat demographics.",
     ),
     "voter_demographics_sabah": (
-        "Sabah seat demographics with Sabah ethnic groups; GE-13, GE-14, GE-15.",
+        "Sabah seat demographics with Sabah ethnic groups; GE-12 through GE-15, "
+        "plus Sabah SE-14 (2020) and SE-15 (2025).",
         "Sabah-only seat demographics.",
     ),
 }
@@ -78,7 +83,7 @@ def dataset_description(name: str) -> str:
     if suffix is not None:
         label = SNAPSHOT_LABELS.get(suffix, suffix)
         extra = ""
-        if suffix == "nsn_se16":
+        if suffix == "mlk_se16":
             extra = " No matching saluran_ballots_* or saluran_stats_* tables."
         return f"Voter roll snapshot, {label}. {VOTER_ROLL_LIMIT_NOTE}{extra}"
 
@@ -92,13 +97,13 @@ def dataset_use_for(name: str) -> str:
     if name.startswith("saluran_ballots_"):
         return (
             "Candidate votes per saluran; join to voter_roll_* on dm, pm, saluran "
-            "(not available for voter_roll_nsn_se16)."
+            "(not available for voter_roll_mlk_se16)."
         )
     if name.startswith("saluran_stats_"):
         return "Turnout and ballot statistics per saluran."
     if name.startswith("voter_roll_"):
-        if name == "voter_roll_nsn_se16":
-            return "N9 SE-16 roll snapshot only; use for demographics or dun-level aggregates (with LIMIT)."  # noqa: E501
+        if name == "voter_roll_mlk_se16":
+            return "Melaka SE-16 roll snapshot only; use for demographics or dun-level aggregates (with LIMIT)."  # noqa: E501
         return "Voter-level demographics and saluran alignment; aggregate before joining saluran tables."  # noqa: E501
     return "See get_query_guide for schema and join rules."
 

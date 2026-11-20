@@ -105,6 +105,20 @@ def test_warns_on_state_election_without_state_filter() -> None:
     assert any("state filter" in warning.lower() for warning in result.warnings)
 
 
+def test_new_2026_snapshot_tables_are_allowlisted() -> None:
+    stats = validate_query("SELECT seat FROM saluran_stats_nsn_se16 LIMIT 5")
+    assert stats.valid
+    assert stats.tables == ["saluran_stats_nsn_se16"]
+
+    ballots = validate_query("SELECT name FROM saluran_ballots_nsn_se16 LIMIT 5")
+    assert ballots.valid
+    assert ballots.tables == ["saluran_ballots_nsn_se16"]
+
+    roll = validate_query("SELECT uid FROM voter_roll_mlk_se16 LIMIT 100")
+    assert roll.valid
+    assert roll.tables == ["voter_roll_mlk_se16"]
+
+
 def test_no_state_election_warning_when_state_present() -> None:
     result = validate_query(
         "SELECT seat FROM headline_stats WHERE election = 'SE-16' AND state = 'Johor' LIMIT 1",

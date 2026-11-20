@@ -142,7 +142,7 @@ Point a client at the checkout instead of PyPI — the same block works in Claud
 2. Add or update the entry in `DATASETS` in `duckdb_lake.py`.
 3. Voter rolls stay streamed automatically if the name starts with `voter_roll_` (`LAZY`). Do not materialise them.
 4. Add or update metadata in `dataset_catalog.py` (`SNAPSHOT_LABELS` for new election snapshots, or `CORE_DATASETS` for non-suffixed tables).
-5. Update tests that hard-code the dataset count — `test_list_datasets_includes_known_table` currently expects 27 tables.
+5. Update tests that hard-code the dataset count — `test_list_datasets_includes_known_table` currently expects 30 tables.
 
 ### Validator or query safety
 

@@ -8,11 +8,12 @@ pytestmark = pytest.mark.unit
 
 def test_catalog_covers_all_datasets() -> None:
     assert_catalog_covers_datasets()
-    assert len(DATASETS) == 27
+    assert len(DATASETS) == 30
 
 
-def test_voter_roll_nsn_se16_notes_missing_saluran() -> None:
-    text = dataset_description("voter_roll_nsn_se16")
+def test_voter_roll_mlk_se16_notes_missing_saluran() -> None:
+    text = dataset_description("voter_roll_mlk_se16")
     assert "2026" in text
     assert "saluran_ballots" in text
     assert "LIMIT" in text
+    assert "saluran_ballots" not in dataset_description("voter_roll_nsn_se16")
